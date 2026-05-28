@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar el resto del proyecto (respeta .dockerignore)
 COPY . .
 
-# Streamlit en el puerto que asigna Railway. CMD en shell form para que
-# $PORT se expanda en runtime (Railway lo inyecta como variable de entorno).
-CMD streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false
+# Streamlit en el puerto que asigna Railway. Usamos exec form con sh -c
+# para garantizar que $PORT se expanda en runtime (la shell form simple sin
+# corchetes a veces es interpretada como literal por la capa de Railway).
+CMD ["sh", "-c", "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"]
