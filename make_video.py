@@ -28,6 +28,7 @@ USO:
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -69,6 +70,17 @@ def _ensure_ffmpeg_on_path():
 
 
 _ensure_ffmpeg_on_path()
+
+# Diagnostico al arrancar el subprocess (queda en log de Railway via streamlit)
+for _name in ("ffmpeg", "ffprobe"):
+    _p = shutil.which(_name)
+    print(f"[make_video startup] {_name}: {_p or '(NO ENCONTRADO)'}", flush=True)
+
+
+def _bin(name):
+    """Resuelve el path absoluto de un binario externo (ffmpeg/ffprobe) usando
+    PATH. Si no se encuentra, devuelve el nombre simple como fallback."""
+    return shutil.which(name) or name
 
 
 # ==============================================================================
@@ -132,9 +144,30 @@ def run(cmd):
 
 
 def media_duration(path):
-    out = run(["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-               "-of", "csv=p=0", path])
-    return float(out.strip())
+    """Duracion en segundos. Prefiere ffprobe (rapido, limpio).
+    Fallback: parsea la salida de 'ffmpeg -i' por si ffprobe no esta disponible
+    (caso visto en algunas imagenes de Railway/Nixpacks)."""
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        out = run([ffprobe, "-v", "quiet", "-show_entries", "format=duration",
+                   "-of", "csv=p=0", path])
+        try:
+            return float(out.strip())
+        except ValueError:
+            pass  # cae al fallback de abajo
+    # Fallback: ffmpeg -i <path>; ffmpeg escribe info a stderr aunque no haya
+    # output, y dentro encontramos "Duration: HH:MM:SS.ss".
+    ffmpeg = _bin("ffmpeg")
+    r = subprocess.run([ffmpeg, "-i", path], capture_output=True, text=True)
+    blob = (r.stderr or "") + "\n" + (r.stdout or "")
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", blob)
+    if not m:
+        raise RuntimeError(
+            f"No pude obtener duracion de '{path}' (ni ffprobe ni ffmpeg -i la entregaron).\n"
+            f"--- ffmpeg salida (recortada) ---\n{blob[:800]}"
+        )
+    h, mn, s = m.groups()
+    return int(h) * 3600 + int(mn) * 60 + float(s)
 
 
 def fmt_srt_time(seconds):

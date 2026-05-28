@@ -1,13 +1,19 @@
 # Configuracion de build para Railway (Nixpacks).
-# - nixPkgs: instala ffmpeg via Nix; el paquete ffmpeg de nixpkgs trae tanto
-#   ffmpeg como ffprobe en su bin/, y Nixpacks lo integra automaticamente al
-#   PATH del runtime. (Usar aptPkgs colocaba los binarios en /usr/bin pero
-#   ffprobe no quedaba findable porque el PATH en runtime no incluia /usr/bin.)
-# - start.cmd: lanza Streamlit en el puerto que Railway asigna por $PORT.
-# Las dependencias de Python las detecta Nixpacks por requirements.txt.
+#
+# Triple defensa para asegurar que ffprobe quede en PATH:
+#  1. nixPkgs ["ffmpeg-full"]  -> build de ffmpeg con TODOS los codecs y binarios
+#                                  (incluye ffmpeg y ffprobe en el mismo bin/).
+#  2. aptPkgs ["ffmpeg"]       -> ademas instala via apt en /usr/bin/ por si
+#                                  la integracion nix->PATH del runtime falla.
+#  3. start.cmd exporta PATH   -> agrega /usr/bin y /usr/local/bin al PATH al
+#                                  inicio para garantizar que los binarios
+#                                  apt sean encontrables por subprocess.
+#
+# Las deps Python las detecta Nixpacks automaticamente por requirements.txt.
 
 [phases.setup]
-nixPkgs = ["ffmpeg"]
+nixPkgs = ["ffmpeg-full"]
+aptPkgs = ["ffmpeg"]
 
 [start]
-cmd = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"
+cmd = "export PATH=/usr/bin:/usr/local/bin:$PATH && streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"

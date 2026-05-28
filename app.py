@@ -19,6 +19,25 @@ import time
 import subprocess
 from pathlib import Path
 
+import shutil as _diag_shutil
+import subprocess as _diag_sub
+
+# === DIAGNOSTICO DE ARRANQUE (visible en logs de Railway) ===
+# Imprime las rutas reales de ffmpeg y ffprobe ANTES de levantar Streamlit
+# para confirmar disponibilidad sin tener que gastar voces/clips probando.
+for _name in ("ffmpeg", "ffprobe"):
+    _p = _diag_shutil.which(_name)
+    print(f"[startup] {_name}: {_p or '(NO ENCONTRADO)'}", flush=True)
+    if _p:
+        try:
+            _v = _diag_sub.run([_p, "-version"], capture_output=True,
+                               text=True, timeout=5).stdout.splitlines()
+            if _v:
+                print(f"[startup] {_name} version: {_v[0]}", flush=True)
+        except Exception as _e:
+            print(f"[startup] {_name} -version error: {_e}", flush=True)
+print(f"[startup] PATH={os.environ.get('PATH','')}", flush=True)
+
 import streamlit as st
 
 import generar
