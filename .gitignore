@@ -1,0 +1,49 @@
+# =========================================
+#  SECRETOS - NUNCA subir al repo
+# =========================================
+claves.txt
+
+# =========================================
+#  Datos generados y locales (no van al repo)
+# =========================================
+clientes/
+.uploads/
+.trabajo_*/
+
+# Videos resultantes
+*.mp4
+
+# Guion en proceso e inputs efimeros
+guion.json
+guion.txt
+
+# Logs de corridas
+video_run.log
+streamlit.log
+
+# =========================================
+#  Python
+# =========================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# =========================================
+#  Editores y SO
+# =========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
