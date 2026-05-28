@@ -15,10 +15,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar el resto del proyecto (respeta .dockerignore)
 COPY . .
 
-# Puerto fijo 8080. Razon: la variable $PORT no se expone en este servicio
-# de Railway (verificado en su panel de Variables), asi que cualquier intento
-# de expandirla resulta en literal "$PORT" y revienta streamlit. Con puerto
-# fijo + EXPOSE, Railway sabe enrutar correctamente sin depender de $PORT.
+# Puerto fijo 8080. Razon: $PORT no se expone en este servicio de Railway.
+# Ademas, Railway/Railpack inyecta STREAMLIT_SERVER_PORT como env var con
+# valor literal "$PORT", lo cual streamlit lee como prioridad sobre los
+# flags CLI. Por eso usamos sh -c para hacer 'unset' defensivo de todos
+# los STREAMLIT_* relevantes antes de lanzar streamlit, garantizando que
+# los flags --server.* del CMD sean los unicos que cuenten.
 EXPOSE 8080
 
-CMD ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
+CMD ["sh", "-c", "unset STREAMLIT_SERVER_PORT STREAMLIT_SERVER_ADDRESS STREAMLIT_SERVER_HEADLESS STREAMLIT_BROWSER_GATHERUSAGESTATS && exec streamlit run app.py --server.port=8080 --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"]
