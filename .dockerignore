@@ -1,0 +1,48 @@
+# =========================================
+#  SECRETOS - NUNCA copiar al contenedor
+# =========================================
+claves.txt
+
+# =========================================
+#  Datos generados y locales (irrelevantes para el runtime)
+# =========================================
+clientes/
+.uploads/
+.trabajo_*/
+*.mp4
+guion.json
+guion.txt
+video_run.log
+streamlit.log
+gh_auth.log
+
+# Backups de config viejos
+nixpacks.toml.bak
+Procfile.bak
+
+# =========================================
+#  Python
+# =========================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+
+# =========================================
+#  Git y editor / SO
+# =========================================
+.git/
+.gitignore
+.dockerignore
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
