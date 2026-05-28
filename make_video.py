@@ -108,7 +108,7 @@ CONFIG = {
     # --- Subtitulos (estilo Reels/TikTok elegante) ---
     "burn_subtitles":   True,
     "sub_fontname":     "Arial",
-    "sub_fontsize":     14,
+    "sub_fontsize":     10,
     "sub_bold":         1,
     "sub_outline":      1.4,    # grosor del borde negro (sutil pero legible)
     "sub_margin_v":     60,     # margen comodo desde el borde inferior
