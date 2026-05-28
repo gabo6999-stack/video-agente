@@ -1,10 +1,13 @@
 # Configuracion de build para Railway (Nixpacks).
-# - aptPkgs: instala ffmpeg en el contenedor (necesario para make_video.py).
+# - nixPkgs: instala ffmpeg via Nix; el paquete ffmpeg de nixpkgs trae tanto
+#   ffmpeg como ffprobe en su bin/, y Nixpacks lo integra automaticamente al
+#   PATH del runtime. (Usar aptPkgs colocaba los binarios en /usr/bin pero
+#   ffprobe no quedaba findable porque el PATH en runtime no incluia /usr/bin.)
 # - start.cmd: lanza Streamlit en el puerto que Railway asigna por $PORT.
 # Las dependencias de Python las detecta Nixpacks por requirements.txt.
 
 [phases.setup]
-aptPkgs = ["ffmpeg"]
+nixPkgs = ["ffmpeg"]
 
 [start]
 cmd = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"

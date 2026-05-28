@@ -38,10 +38,25 @@ import requests
 
 
 def _ensure_ffmpeg_on_path():
-    """En Windows post-winget, el PATH no se actualiza hasta reiniciar shell.
-    Si ffmpeg no esta visible, intenta encontrarlo en la carpeta de winget."""
-    if shutil.which("ffmpeg"):
+    """Asegura que ffmpeg Y ffprobe sean encontrables.
+    - Linux/Railway: si ffmpeg esta y ffprobe no, busca ffprobe en la misma carpeta.
+    - Windows post-winget: si ninguno esta, intenta la carpeta de winget.
+    """
+    have_ffmpeg  = shutil.which("ffmpeg")
+    have_ffprobe = shutil.which("ffprobe")
+    if have_ffmpeg and have_ffprobe:
         return
+
+    # Caso comun en imagenes Linux: ffmpeg esta en PATH pero ffprobe no
+    # (o viceversa). Ambos suelen vivir en la misma carpeta.
+    if have_ffmpeg and not have_ffprobe:
+        bin_dir = os.path.dirname(have_ffmpeg)
+        for nombre in ("ffprobe", "ffprobe.exe"):
+            if os.path.exists(os.path.join(bin_dir, nombre)):
+                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                return
+
+    # Fallback Windows winget
     patrones = [
         os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\ffmpeg-*\bin"),
         os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg.Essentials_*\ffmpeg-*\bin"),
