@@ -4,7 +4,7 @@ Documento de continuidad. **Lee este archivo entero antes de tocar nada.**
 Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un chat nuevo de Claude web.
 
 - Última actualización: 2026-05-30
-- Último commit en `main`: **`feat: animar imágenes con FFmpeg Ken Burns (gratis), reemplaza Vidu image-to-video`** (ver `git log` para el hash exacto)
+- Último commit en `main`: **`0b190ed`** (`feat: animar imágenes con FFmpeg Ken Burns gratis, reemplaza Vidu image-to-video`)
 - URL pública activa: **https://videoagenterafa.up.railway.app**
 - Repo: **https://github.com/gabo6999-stack/video-agente** (privado, rama `main`)
 
