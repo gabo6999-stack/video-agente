@@ -554,6 +554,54 @@ def componer_escena(clip_mp4, voz_mp3, voz_dur, salida_mp4):
 
 
 # ==============================================================================
+#  POLLINATIONS (imagenes GRATIS)  ->  genera una imagen para escenas sin foto
+# ==============================================================================
+#  Servicio externo gratuito, sin llave. Genera una imagen a partir del prompt
+#  visual (el mismo que antes iba a Vidu). Luego se anima con Ken Burns (gratis).
+#  Reemplaza al texto-a-video de fal Vidu cuando IMAGE_ENGINE != "fal" (lo normal).
+#  fal sigue disponible como respaldo de pago (IMAGE_ENGINE=fal).
+# ==============================================================================
+POLLINATIONS_BASE = "https://image.pollinations.ai/prompt/"
+
+
+def generar_imagen_pollinations(prompt, salida_img, idx, intentos=4):
+    """Descarga una imagen generada gratis por Pollinations.ai para la escena.
+    Reintenta con espera si el servicio responde 429/5xx (limite ~1 img/15s)."""
+    import urllib.parse
+
+    # Pedimos la imagen al tamano del lienzo de trabajo de Ken Burns (2x el de
+    # salida) para que tenga resolucion de sobra al hacer el zoom/paneo.
+    W, H = _target_dims()
+    pw, ph = W * 2, H * 2
+    # seed distinto por escena -> imagenes distintas; nologo y modelo flux (buena calidad)
+    q = (f"?width={pw}&height={ph}&model=flux&nologo=true&seed={1000 + idx}")
+    url = POLLINATIONS_BASE + urllib.parse.quote((prompt or "cinematic scene")[:1500]) + q
+
+    ultimo = None
+    for intento in range(1, intentos + 1):
+        try:
+            log(f"Pollinations (gratis): pidiendo imagen escena {idx} ({pw}x{ph})...")
+            r = requests.get(url, timeout=180)
+            ctype = r.headers.get("content-type", "")
+            if r.status_code == 200 and ctype.startswith("image") and len(r.content) > 2000:
+                with open(salida_img, "wb") as f:
+                    f.write(r.content)
+                log(f"Pollinations: imagen escena {idx} lista ({len(r.content)//1024} KB).")
+                return
+            ultimo = f"status={r.status_code} type={ctype} bytes={len(r.content)}"
+            # respeta Retry-After si viene; si no, espera fija (~limite del servicio)
+            espera = int(r.headers.get("Retry-After", 0) or 0) or 16
+        except Exception as e:
+            ultimo = str(e)[:200]
+            espera = 16
+        if intento < intentos:
+            log(f"Pollinations intento {intento}/{intentos} sin imagen ({ultimo}). "
+                f"Espero {espera}s y reintento...")
+            time.sleep(espera)
+    raise RuntimeError(f"Pollinations no entrego imagen para escena {idx}. Ultimo: {ultimo}")
+
+
+# ==============================================================================
 #  REANUDACION  ->  reusa archivos validos de corridas anteriores
 # ==============================================================================
 def _es_media_valido(path):
@@ -596,8 +644,21 @@ def procesar_escena(idx, esc, work):
             # Imagen propia del usuario: se anima GRATIS con FFmpeg (Ken Burns).
             generar_clip_kenburns(imagen_local, idx, voz_dur, clip_mp4)
         else:
-            # Sin imagen: texto-a-video con fal Vidu (igual que siempre).
-            generar_clip(esc["visual"], voz_dur, clip_mp4)
+            engine_img = (os.environ.get("IMAGE_ENGINE")
+                          or CONFIG.get("image_engine") or "pollinations").strip().lower()
+            if engine_img == "fal":
+                # Respaldo de PAGO: texto-a-video con fal Vidu (como antes).
+                generar_clip(esc["visual"], voz_dur, clip_mp4)
+            else:
+                # GRATIS por defecto: imagen con Pollinations + animacion Ken Burns.
+                img_ia = os.path.join(work, f"imgia_{idx}.png")
+                if os.path.exists(img_ia) and os.path.getsize(img_ia) > 2000:
+                    log(f"REANUDACION: imagen IA {idx} ya existia, la reutilizo.")
+                else:
+                    if os.path.exists(img_ia):
+                        os.remove(img_ia)
+                    generar_imagen_pollinations(esc["visual"], img_ia, idx)
+                generar_clip_kenburns(img_ia, idx, voz_dur, clip_mp4)
 
     componer_escena(clip_mp4, voz_mp3, voz_dur, esc_mp4)
     return esc_mp4, voz_dur

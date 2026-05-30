@@ -185,7 +185,8 @@ def _guardar_uploads(imgs, logo):
 def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
                          rutas_imgs=None, ruta_logo=None, con_subs=True,
                          aspect_ratio="9:16", tts_engine="piper",
-                         piper_voice=None, piper_speaker=None):
+                         piper_voice=None, piper_speaker=None,
+                         image_engine="pollinations"):
     log_box = st.empty()
     lines = []
 
@@ -212,6 +213,12 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
             if n_imgs_efectivas:
                 _append(f"  {n_imgs_efectivas} imagen(es) propias en escenas 1..{n_imgs_efectivas} "
                         f"(se animan GRATIS con FFmpeg Ken Burns, sin costo de animacion).")
+            n_ia = n_escenas - n_imgs_efectivas
+            if n_ia > 0:
+                if (image_engine or "pollinations").lower() == "fal":
+                    _append(f"  {n_ia} escena(s) sin foto: fal Vidu (video de pago).")
+                else:
+                    _append(f"  {n_ia} escena(s) sin foto: imagen IA gratis (Pollinations) + Ken Burns.")
             if ruta_logo:
                 _append(f"  Outro con logo activado ({CONFIG_OUTRO_S}s).")
 
@@ -231,6 +238,8 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
             if not usa_elevenlabs:
                 cfg["piper_voice"] = piper_voice or generar.PIPER_VOZ_DEFAULT
                 cfg["piper_speaker"] = piper_speaker
+            # Motor de imagenes (escenas sin foto): lo lee make_video.py
+            cfg["image_engine"] = (image_engine or "pollinations").strip().lower()
             generar.validar_guion(guion, n_escenas, voces)
             generar.escribir_guion(guion, str(BASE_DIR / "guion.json"))
             if usa_elevenlabs:
@@ -392,10 +401,10 @@ def pagina_crear():
         expanded=uploads_abierto,
     ):
         st.caption(
-            "Si subes tus propias imagenes, el sistema las ANIMA GRATIS aqui mismo: "
-            "le da un movimiento suave de zoom y paneo (efecto Ken Burns) a cada una, "
-            "sin costo de animacion (solo pagas la voz). Una imagen por escena, en orden. "
-            "Las escenas para las que no subas imagen se generan con IA. "
+            "Si subes tus propias imagenes, el sistema las ANIMA GRATIS aqui mismo "
+            "con un movimiento suave de zoom y paneo (efecto Ken Burns). Una imagen por "
+            "escena, en orden. Las escenas para las que NO subas imagen tambien son gratis: "
+            "se crea una imagen con IA y se anima igual. Todo sin costo de animacion. "
             "El logo se agrega como pantalla de cierre (2.5s, fondo negro, sin costo)."
         )
         imgs = st.file_uploader(
@@ -414,20 +423,35 @@ def pagina_crear():
             key="up_logo_crear",
         )
 
+    # Motor de imagenes para escenas SIN foto: por defecto Pollinations (gratis).
+    # Se puede volver a fal Vidu (video de pago) con la variable IMAGE_ENGINE=fal.
+    engine_img = (os.environ.get("IMAGE_ENGINE") or "pollinations").strip().lower()
+    imagenes_gratis = engine_img != "fal"
+
     n_imgs_subidas = len(imgs) if imgs else 0
     n_imgs_efectivas = min(n_imgs_subidas, n_escenas)
     n_ia = n_escenas - n_imgs_efectivas
-    if n_imgs_efectivas > 0:
-        costo = generar.calcular_costo_mixto(n_escenas, n_imgs_efectivas)
-        if n_ia > 0:
-            modo_etiqueta = f"{n_imgs_efectivas} con tus fotos (gratis) + {n_ia} con IA"
-        else:
-            modo_etiqueta = f"{n_imgs_efectivas} con tus fotos (gratis)"
-    else:
-        costo = generar.calcular_costo(n_escenas)
-        modo_etiqueta = f"{n_escenas} escenas"
 
-    aviso_extra = (
+    if imagenes_gratis:
+        # Todo gratis: tus fotos (Ken Burns) + escenas IA (Pollinations + Ken Burns).
+        costo = 0.0
+        if n_imgs_efectivas > 0 and n_ia > 0:
+            modo_etiqueta = f"{n_imgs_efectivas} con tus fotos + {n_ia} con IA (gratis)"
+        elif n_imgs_efectivas > 0:
+            modo_etiqueta = f"{n_imgs_efectivas} con tus fotos (gratis)"
+        else:
+            modo_etiqueta = f"{n_escenas} escenas con IA (gratis)"
+    else:
+        # Respaldo de pago: las escenas sin foto usan fal Vidu (video real).
+        if n_imgs_efectivas > 0:
+            costo = generar.calcular_costo_mixto(n_escenas, n_imgs_efectivas)
+            modo_etiqueta = (f"{n_imgs_efectivas} con tus fotos (gratis) + {n_ia} con IA"
+                             if n_ia > 0 else f"{n_imgs_efectivas} con tus fotos (gratis)")
+        else:
+            costo = generar.calcular_costo(n_escenas)
+            modo_etiqueta = f"{n_escenas} escenas"
+
+    aviso_extra = (not imagenes_gratis) and (
         n_escenas > generar.N_ESCENAS_DEFAULT
         or costo > generar.COSTO_DEFAULT * 1.01
     )
@@ -436,11 +460,18 @@ def pagina_crear():
             f"Subiste {n_imgs_subidas} imagenes pero solo hay {n_escenas} escenas. "
             f"Solo se usaran las primeras {n_escenas}."
         )
-    if n_imgs_efectivas > 0:
+    if imagenes_gratis:
+        partes = []
+        if n_imgs_efectivas > 0:
+            partes.append(f"tus {n_imgs_efectivas} foto(s) animadas con Ken Burns")
+        if n_ia > 0:
+            partes.append(f"{n_ia} escena(s) con imagenes IA (Pollinations)")
+        st.success("Todo **gratis**: " + " y ".join(partes) +
+                   ". No hay costo de animacion; la voz tambien es gratis (Piper).")
+    elif n_imgs_efectivas > 0:
         st.success(
-            f"Tus {n_imgs_efectivas} imagen(es) se animan **gratis** (efecto Ken Burns, "
-            f"sin costo de animacion)."
-            + (f" Las otras {n_ia} escena(s) se generan con IA." if n_ia > 0 else "")
+            f"Tus {n_imgs_efectivas} imagen(es) se animan **gratis** (efecto Ken Burns)."
+            + (f" Las otras {n_ia} escena(s) usan fal Vidu (de pago)." if n_ia > 0 else "")
         )
     if aviso_extra:
         st.warning(
@@ -448,10 +479,8 @@ def pagina_crear():
             f"vs ${generar.COSTO_DEFAULT:.2f} estandar."
         )
 
-    # El costo mostrado es solo el de fal (animacion IA). Las imagenes propias
-    # no suman; la voz de ElevenLabs se cobra aparte (saldo en la barra lateral).
     if costo <= 0.0001:
-        btn_label = "🎬  Generar video  ·  sin costo de animacion (solo la voz)"
+        btn_label = f"🎬  Generar video  ·  gratis · {modo_etiqueta}"
     else:
         btn_label = f"🎬  Generar video  ·  ~${costo:.2f} - {modo_etiqueta}"
     if logo is not None:
@@ -471,6 +500,7 @@ def pagina_crear():
             rutas_imgs=rutas_imgs, ruta_logo=ruta_logo,
             con_subs=con_subs, aspect_ratio=aspect_ratio,
             tts_engine=engine_tts, piper_voice=piper_voice, piper_speaker=piper_speaker,
+            image_engine=engine_img,
         )
 
 
