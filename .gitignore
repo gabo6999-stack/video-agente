@@ -26,6 +26,11 @@ streamlit.log
 # NO van al repo.
 piper/
 
+# Kokoro (voz local por defecto): modelo ONNX + voces (~115MB). En local se
+# descargan a ./kokoro para pruebas; en el deploy los baja el Dockerfile a
+# /opt/kokoro. NO van al repo.
+kokoro/
+
 # =========================================
 #  Python
 # =========================================

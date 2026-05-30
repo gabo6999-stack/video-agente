@@ -4,3 +4,9 @@ requests==2.34.2
 pandas==2.2.3
 openpyxl==3.1.5
 fal-client==1.0.0
+# Voz Kokoro (TTS local gratis, espanol latino) via ONNX - NO arrastra PyTorch.
+# kokoro-onnx trae onnxruntime, numpy, phonemizer-fork y espeakng-loader (este
+# ultimo incluye el binario de espeak-ng + sus datos, asi no hace falta apt).
+kokoro-onnx==0.5.0
+soundfile==0.13.1
+misaki-fork[en]

@@ -6,7 +6,7 @@ FROM python:3.13-slim
 # (librerias que necesita el binario de Piper en Debian slim).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ffmpeg curl ca-certificates libstdc++6 libgomp1 \
+        ffmpeg curl ca-certificates libstdc++6 libgomp1 libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Piper: voz local GRATIS (TTS neuronal open-source, corre en CPU) ---
@@ -30,6 +30,15 @@ RUN curl -fsSL -o /tmp/piper.tar.gz \
         curl -fsSL -o "/opt/piper/voices/${N}.onnx"      "${PV}/${V}.onnx" ; \
         curl -fsSL -o "/opt/piper/voices/${N}.onnx.json" "${PV}/${V}.onnx.json" ; \
     done
+
+# --- Kokoro: voz local GRATIS por defecto (espanol latino, mas natural) ---
+# Modelo ONNX cuantizado (int8, ~88MB) + voces (~27MB). Corre en CPU sin PyTorch.
+# Esta capa tambien se cachea (solo cambia si cambian estas lineas).
+ENV KOKORO_DIR=/opt/kokoro
+RUN mkdir -p /opt/kokoro \
+    && KB="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0" \
+    && curl -fsSL -o /opt/kokoro/kokoro-v1.0.int8.onnx "${KB}/kokoro-v1.0.int8.onnx" \
+    && curl -fsSL -o /opt/kokoro/voices-v1.0.bin        "${KB}/voices-v1.0.bin"
 
 WORKDIR /app
 

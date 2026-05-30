@@ -20,6 +20,10 @@ gh_auth.log
 # el binario y las voces directamente en /opt/piper durante el build.
 piper/
 
+# Kokoro local (./kokoro): NO enviar al contexto Docker; el Dockerfile descarga
+# el modelo y las voces directamente en /opt/kokoro durante el build.
+kokoro/
+
 # Backups de config viejos
 nixpacks.toml.bak
 Procfile.bak

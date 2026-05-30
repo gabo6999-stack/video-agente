@@ -57,6 +57,23 @@ def piper_voz_por_key(key):
             return v
     return None
 
+
+# Catalogo de voces Kokoro en ESPANOL LATINO (gratis, locales, mas naturales que
+# Piper). El catalogo espanol de Kokoro es chico: 1 femenina + 1 masculina neutras
+# (se omite "em_santa" por ser una voz tematica). El usuario solo escoge.
+KOKORO_VOCES = [
+    {"key": "ef_dora",  "nombre": "Dora · Latina",  "genero": "femenino"},
+    {"key": "em_alex",  "nombre": "Alex · Latino",  "genero": "masculino"},
+]
+KOKORO_VOZ_DEFAULT = "em_alex"
+
+
+def kokoro_voz_por_key(key):
+    for v in KOKORO_VOCES:
+        if v["key"] == key:
+            return v
+    return None
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 

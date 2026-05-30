@@ -423,8 +423,8 @@ def _guardar_uploads(imgs, logo):
 # ==============================================================================
 def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
                          rutas_imgs=None, ruta_logo=None, con_subs=True,
-                         aspect_ratio="9:16", tts_engine="piper",
-                         piper_voice=None, piper_speaker=None,
+                         aspect_ratio="9:16", tts_engine="kokoro",
+                         kokoro_voice=None, piper_voice=None, piper_speaker=None,
                          image_engine="pollinations"):
     log_box = st.empty()
     lines = []
@@ -435,20 +435,24 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
 
     rutas_imgs = rutas_imgs or []
     n_imgs_efectivas = min(len(rutas_imgs), n_escenas)
-    usa_elevenlabs = (tts_engine or "piper").strip().lower() == "elevenlabs"
+    engine = (tts_engine or "kokoro").strip().lower()
+    usa_elevenlabs = engine == "elevenlabs"
 
     with st.status("Trabajando...", expanded=True) as status:
         try:
-            # Con Piper (voz gratis) NO se consultan voces de ElevenLabs: la voz
+            # Con voz gratis (Kokoro/Piper) NO se consultan voces de ElevenLabs:
             # la elige el usuario. Solo en modo ElevenLabs pedimos la lista.
             if usa_elevenlabs:
                 status.update(label="1/4 · Consultando voces de ElevenLabs...")
                 _append("Consultando voces de ElevenLabs...")
                 voces = generar.obtener_voces_elevenlabs(eleven_key)
                 _append(f"  {len(voces)} voces en la cuenta.")
-            else:
+            elif engine == "piper":
                 voces = []
-                _append(f"Voz: Piper local (gratis) · {piper_voice or generar.PIPER_VOZ_DEFAULT}")
+                _append(f"Voz: Piper local (gratis, España) · {piper_voice or generar.PIPER_VOZ_DEFAULT}")
+            else:  # kokoro
+                voces = []
+                _append(f"Voz: Kokoro local (gratis, español latino) · {kokoro_voice or generar.KOKORO_VOZ_DEFAULT}")
             if n_imgs_efectivas:
                 _append(f"  {n_imgs_efectivas} imagen(es) propias en escenas 1..{n_imgs_efectivas} "
                         f"(se animan GRATIS con FFmpeg Ken Burns, sin costo de animacion).")
@@ -473,10 +477,12 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
             cfg = guion.setdefault("config", {})
             cfg["burn_subtitles"] = bool(con_subs)
             # Fijar el motor de voz en el guion (lo lee make_video.py)
-            cfg["tts_engine"] = "elevenlabs" if usa_elevenlabs else "piper"
-            if not usa_elevenlabs:
+            cfg["tts_engine"] = engine
+            if engine == "piper":
                 cfg["piper_voice"] = piper_voice or generar.PIPER_VOZ_DEFAULT
                 cfg["piper_speaker"] = piper_speaker
+            elif engine == "kokoro":
+                cfg["kokoro_voice"] = kokoro_voice or generar.KOKORO_VOZ_DEFAULT
             # Motor de imagenes (escenas sin foto): lo lee make_video.py
             cfg["image_engine"] = (image_engine or "pollinations").strip().lower()
             generar.validar_guion(guion, n_escenas, voces)
@@ -484,8 +490,10 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
             if usa_elevenlabs:
                 _append(f"  Voz elegida: {guion.get('_voz_nombre','?')}  ({guion['config'].get('voice_id','?')})")
                 _append(f"  Motivo:      {guion.get('_voz_motivo','')}")
-            else:
+            elif engine == "piper":
                 _append(f"  Voz (Piper): {cfg['piper_voice']}")
+            else:
+                _append(f"  Voz (Kokoro): {cfg['kokoro_voice']}")
             _append(f"  Output:      {guion['config'].get('output_file')}")
             _append(f"  Escenas:     {len(guion['escenas'])}")
             _append(f"  Formato:     {guion['config'].get('aspect_ratio', '9:16')}")
@@ -607,32 +615,38 @@ def pagina_crear():
         )
 
     # --- Selector de VOZ ---
-    # Motor por defecto: Piper (voz local gratis). Se puede volver a ElevenLabs
-    # poniendo la variable de entorno TTS_ENGINE=elevenlabs (interruptor del equipo).
-    engine_tts = (os.environ.get("TTS_ENGINE") or "piper").strip().lower()
+    # Motor por defecto: Kokoro (voz local gratis, español latino, más natural).
+    # Interruptores del equipo (variable de entorno TTS_ENGINE):
+    #   kokoro (default) · piper (español de España) · elevenlabs (de pago).
+    engine_tts = (os.environ.get("TTS_ENGINE") or "kokoro").strip().lower()
+    kokoro_voice = None
     piper_voice, piper_speaker = None, None
-    if engine_tts != "elevenlabs":
-        voz_opts = {}
-        for v in [x for x in generar.PIPER_VOCES if x["genero"] == "femenino"]:
-            voz_opts[f"👩  Femenina · {v['nombre']}"] = v
-        for v in [x for x in generar.PIPER_VOCES if x["genero"] == "masculino"]:
-            voz_opts[f"👨  Masculina · {v['nombre']}"] = v
-        labels = list(voz_opts.keys())
-        default_idx = next(
-            (i for i, k in enumerate(labels) if voz_opts[k]["key"] == generar.PIPER_VOZ_DEFAULT),
-            0,
-        )
-        voz_label = st.selectbox(
-            "Voz (gratis, en español)",
-            labels,
-            index=default_idx,
-            help="Voces neutras y naturales. El sistema usa voz local gratis (Piper); "
-                 "tú solo eliges cuál te gusta.",
-        )
-        sel_voz = voz_opts[voz_label]
-        piper_voice, piper_speaker = sel_voz["key"], sel_voz["speaker"]
-    else:
+
+    def _selector_voces(catalogo, default_key, ayuda):
+        """Dibuja un selectbox de voces separadas en femeninas/masculinas y
+        devuelve la voz elegida (dict del catalogo)."""
+        opts = {}
+        for v in [x for x in catalogo if x["genero"] == "femenino"]:
+            opts[f"👩  Femenina · {v['nombre']}"] = v
+        for v in [x for x in catalogo if x["genero"] == "masculino"]:
+            opts[f"👨  Masculina · {v['nombre']}"] = v
+        labels = list(opts.keys())
+        idx = next((i for i, k in enumerate(labels) if opts[k]["key"] == default_key), 0)
+        elegido = st.selectbox("Voz (gratis, en español)", labels, index=idx, help=ayuda)
+        return opts[elegido]
+
+    if engine_tts == "elevenlabs":
         st.caption("🔊 Voz: ElevenLabs (de pago) — la elige el sistema según el tono.")
+    elif engine_tts == "piper":
+        sel = _selector_voces(
+            generar.PIPER_VOCES, generar.PIPER_VOZ_DEFAULT,
+            "Voces neutras (español de España). Voz local gratis (Piper).")
+        piper_voice, piper_speaker = sel["key"], sel["speaker"]
+    else:  # kokoro (por defecto)
+        sel = _selector_voces(
+            generar.KOKORO_VOCES, generar.KOKORO_VOZ_DEFAULT,
+            "Voces en español latino, naturales y neutras. Voz local gratis (Kokoro).")
+        kokoro_voice = sel["key"]
 
     uploads_abierto = bool(st.session_state.get("_abrir_uploads", False))
     with st.expander(
@@ -738,7 +752,8 @@ def pagina_crear():
             descripcion, n_escenas, anthro_key, eleven_key,
             rutas_imgs=rutas_imgs, ruta_logo=ruta_logo,
             con_subs=con_subs, aspect_ratio=aspect_ratio,
-            tts_engine=engine_tts, piper_voice=piper_voice, piper_speaker=piper_speaker,
+            tts_engine=engine_tts, kokoro_voice=kokoro_voice,
+            piper_voice=piper_voice, piper_speaker=piper_speaker,
             image_engine=engine_img,
         )
 

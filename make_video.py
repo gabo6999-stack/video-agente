@@ -92,6 +92,16 @@ print(f"[make_video startup] piper bin: {_piper_exe or '(NO ENCONTRADO)'}", flus
 print(f"[make_video startup] espeak-ng-data: "
       f"{_espeak_dir if os.path.isdir(_espeak_dir) else '(NO ENCONTRADO)'}", flush=True)
 
+# Diagnostico de Kokoro (voz por defecto): confirma modelo + voces.
+_kokoro_root = os.environ.get("KOKORO_DIR") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "kokoro")
+_kokoro_model = os.path.join(_kokoro_root, "kokoro-v1.0.int8.onnx")
+_kokoro_voices = os.path.join(_kokoro_root, "voices-v1.0.bin")
+print(f"[make_video startup] kokoro modelo: "
+      f"{_kokoro_model if os.path.exists(_kokoro_model) else '(NO ENCONTRADO)'}", flush=True)
+print(f"[make_video startup] kokoro voces: "
+      f"{_kokoro_voices if os.path.exists(_kokoro_voices) else '(NO ENCONTRADO)'}", flush=True)
+
 
 def _bin(name):
     """Resuelve el path absoluto de un binario externo (ffmpeg/ffprobe) usando
@@ -116,11 +126,12 @@ CONFIG = {
     "outro_logo_scale":  0.6,     # logo ocupa este % del ancho del video
 
     # --- Motor de voz (TTS) ---
-    # "piper" = voz local GRATIS (por defecto). "elevenlabs" = voz de pago.
-    # Se puede forzar globalmente con la variable de entorno TTS_ENGINE (tiene
-    # prioridad sobre esto). Es el "interruptor" para volver a ElevenLabs.
-    "tts_engine":       "piper",
-    "piper_voice":      "es_ES-davefx-medium",  # voz Piper por defecto (masculina, neutra)
+    # "kokoro" = voz local GRATIS, mas natural, espanol latino (POR DEFECTO).
+    # "piper"  = voz local gratis (espanol de Espana). "elevenlabs" = voz de pago.
+    # Se puede forzar con la variable de entorno TTS_ENGINE (tiene prioridad).
+    "tts_engine":       "kokoro",
+    "kokoro_voice":     "em_alex",               # voz Kokoro por defecto (masculina, latina)
+    "piper_voice":      "es_ES-davefx-medium",   # voz Piper (masculina, Espana)
     "piper_speaker":    None,                    # indice de speaker (voces multi-speaker)
 
     # --- ElevenLabs (voz de pago, queda detras del interruptor) ---
@@ -283,6 +294,69 @@ def generar_voz(texto, salida_mp3):
 
 
 # ==============================================================================
+#  KOKORO (voz local GRATIS, mas natural, ESPANOL LATINO)  ->  MP3 de narracion
+# ==============================================================================
+#  TTS neuronal open-source (Apache-2.0) que corre en CPU via ONNX, SIN PyTorch.
+#  Modelo (.onnx int8) + voces (.bin) se instalan en el Dockerfile dentro de
+#  KOKORO_DIR (por defecto /opt/kokoro en el deploy, ./kokoro en local).
+#  La fonetica del espanol va incluida (espeakng-loader, dependencia del paquete).
+# ==============================================================================
+_KOKORO = None  # instancia cargada una sola vez (el modelo tarda ~1-2s en cargar)
+
+
+def _kokoro_dir():
+    return os.environ.get("KOKORO_DIR") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "kokoro")
+
+
+def _kokoro_cargar():
+    """Carga (una sola vez) el modelo Kokoro. Importa perezosamente para no
+    pagar el costo si se usa otro motor de voz."""
+    global _KOKORO
+    if _KOKORO is not None:
+        return _KOKORO
+    d = _kokoro_dir()
+    modelo = os.path.join(d, "kokoro-v1.0.int8.onnx")
+    voces = os.path.join(d, "voices-v1.0.bin")
+    if not os.path.exists(modelo) or not os.path.exists(voces):
+        raise RuntimeError(
+            f"Kokoro no instalado (faltan {modelo} o {voces}). En el deploy se "
+            "instala via Dockerfile; en local descargalos en ./kokoro.")
+    try:
+        from kokoro_onnx import Kokoro
+    except Exception as e:
+        raise RuntimeError(f"Falta el paquete kokoro-onnx: {e}") from e
+    log("Kokoro: cargando modelo (una vez)...")
+    _KOKORO = Kokoro(modelo, voces)
+    return _KOKORO
+
+
+def generar_voz_kokoro(texto, salida_mp3, voice=None):
+    """Genera la narracion con Kokoro (local, gratis, espanol latino) y la deja
+    en MP3 (mismo formato que las otras voces, para no tocar persistencia/montaje)."""
+    voice = voice or CONFIG.get("kokoro_voice", "em_alex")
+    k = _kokoro_cargar()
+    log(f"Kokoro (gratis): generando voz ({len(texto)} caracteres, voz={voice})...")
+    try:
+        import soundfile as sf
+    except Exception as e:
+        raise RuntimeError(f"Falta el paquete soundfile: {e}") from e
+
+    samples, sr = k.create(texto, voice=voice, lang="es")  # espanol
+    wav = os.path.splitext(salida_mp3)[0] + ".wav"
+    sf.write(wav, samples, sr)
+    # WAV -> MP3 (192k) para igualar el formato de las demas voces
+    run(["ffmpeg", "-y", "-i", wav, "-c:a", "libmp3lame", "-b:a", "192k", salida_mp3])
+    try:
+        os.remove(wav)
+    except OSError:
+        pass
+    dur = media_duration(salida_mp3)
+    log(f"Kokoro: voz lista ({dur:.1f}s).")
+    return dur
+
+
+# ==============================================================================
 #  PIPER (voz local GRATIS)  ->  MP3 de narracion
 # ==============================================================================
 #  Motor de TTS neuronal open-source que corre en CPU, sin API ni costo.
@@ -363,15 +437,20 @@ def generar_voz_piper(texto, salida_mp3, voice=None, speaker=None):
 
 
 def generar_narracion(texto, salida_mp3):
-    """Despacha la generacion de voz al motor activo. Por defecto Piper (gratis).
-    Se puede forzar con la variable de entorno TTS_ENGINE (prioridad) o con
-    CONFIG['tts_engine']. ElevenLabs queda disponible como respaldo de pago."""
-    engine = (os.environ.get("TTS_ENGINE") or CONFIG.get("tts_engine") or "piper").strip().lower()
+    """Despacha la generacion de voz al motor activo. Por defecto Kokoro (gratis,
+    espanol latino, mas natural). Se puede forzar con la variable de entorno
+    TTS_ENGINE (prioridad) o con CONFIG['tts_engine']:
+        kokoro     -> voz local gratis, espanol latino (default)
+        piper      -> voz local gratis, espanol de Espana
+        elevenlabs -> voz de pago (respaldo)."""
+    engine = (os.environ.get("TTS_ENGINE") or CONFIG.get("tts_engine") or "kokoro").strip().lower()
     if engine == "elevenlabs":
         return generar_voz(texto, salida_mp3)
-    return generar_voz_piper(texto, salida_mp3,
-                             voice=CONFIG.get("piper_voice"),
-                             speaker=CONFIG.get("piper_speaker"))
+    if engine == "piper":
+        return generar_voz_piper(texto, salida_mp3,
+                                 voice=CONFIG.get("piper_voice"),
+                                 speaker=CONFIG.get("piper_speaker"))
+    return generar_voz_kokoro(texto, salida_mp3, voice=CONFIG.get("kokoro_voice"))
 
 
 # ==============================================================================
