@@ -4,38 +4,64 @@ Documento de continuidad. **Lee este archivo entero antes de tocar nada.**
 Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un chat nuevo de Claude web.
 
 - Última actualización: 2026-05-30 (fin de sesión)
-- Último commit de código en `main`: **`3d57d5d`** (Kokoro como voz por defecto). Doc: `b7aa952` + este cierre de sesión.
+- Último commit de código en `main`: **`3d57d5d`** (Kokoro como voz por defecto). Docs posteriores: `b7aa952`, `7f6a232` y este cierre.
 - URL pública activa: **https://videoagenterafa.up.railway.app**
 - Repo: **https://github.com/gabo6999-stack/video-agente** (privado, rama `main`)
 
 ---
 
-## 0. ⚠️ LO PRIMERO PARA EL PRÓXIMO CHAT (urgente + pendientes)
+# 🔴 TAREA PENDIENTE Nº1 (URGENTE) — ARREGLAR EL DEPLOY DE KOKORO EN RAILWAY
 
-### PASO 0 — URGENTE: verificar que Kokoro está REALMENTE desplegado en Railway
-Cuando Rafa probó en producción, **la voz seguía sonando como PIPER, NO como Kokoro**, aunque en el código Kokoro ya es el motor por defecto (commits `3d57d5d` / `b7aa952`). Sospecha fuerte: **el deploy con Kokoro NO se aplicó de verdad** (build falló, redeploy no se completó, o el deployment activo no es el último commit).
+> **Si Rafa dice "revisa el HANDOFF", ESTO es lo que hay que retomar primero.**
 
-Qué hacer (en orden):
-1. En Railway → servicio **web** → **Deployments**: confirmar que el deployment **Active** corresponde al commit **`3d57d5d` o más nuevo** (no a uno viejo).
-2. En **Deploy Logs / Build Logs** buscar:
-   - Que el build **descargó Kokoro** sin error (líneas `curl` a `github.com/thewh1teagle/kokoro-onnx`), y que `pip install` instaló `kokoro-onnx` (puede tardar/pesar).
-   - Al arrancar, las líneas: `[startup] kokoro modelo: /opt/kokoro/kokoro-v1.0.int8.onnx` y `[startup] kokoro voces: /opt/kokoro/voices-v1.0.bin` **sin "(NO ENCONTRADO)"**.
-   - Si al generar un video aparece `>> Kokoro: cargando modelo...` y `>> Kokoro (gratis): generando voz...` → está usando Kokoro. Si aparece `>> Piper...` → NO está en Kokoro.
-3. Posibles causas si NO es Kokoro:
-   - **El build falló** al bajar el modelo o instalar `kokoro-onnx` y Railway dejó **activo un deployment anterior** (Piper). → Revisar Build Logs del intento más reciente; si falló, arreglar y redeployar.
-   - **`TTS_ENGINE` está fijado a `piper`** en Variables de Railway (la env var tiene prioridad sobre el default del código). → Quitarla o ponerla en `kokoro`.
-   - **Caché de build** sirvió una imagen vieja. → Forzar redeploy/rebuild.
-   - **Posible peso/tiempo**: `kokoro-onnx` + onnxruntime + modelo ~115 MB pueden alargar el build; verificar que no se cortó por timeout/memoria.
-4. Si Kokoro no arranca por algún error en el contenedor, como **plan B inmediato** se puede poner `TTS_ENGINE=piper` (con su fix de espeak ya aplicado) mientras se resuelve.
+**Qué pasa:** en el **código** Kokoro ya es la voz por defecto (español latino), pero en **producción la voz sigue siendo PIPER (español de España)**. O sea: **el deploy de Kokoro NO se aplicó.**
 
-### PENDIENTE 1 — Animaciones (Rafa NO conforme) — EN EVALUACIÓN, NO implementado
+**Cómo se confirmó (ya verificado, no es suposición):** se cargó la app en vivo (`videoagenterafa.up.railway.app`) y el **selector de voz muestra "Masculina · David · España"** (voz de Piper), en vez de las voces Kokoro latinas **"Dora · Latina" / "Alex · Latino"**. La interfaz nueva (PyS, tema oscuro) **sí** está; solo la voz quedó en Piper.
+
+**Causas probables (cualquiera de las 3 da este resultado):**
+1. **Variable `TTS_ENGINE=piper` en Railway** → tiene prioridad sobre el código y fuerza Piper. *(Es lo más rápido de descartar; revisar primero.)*
+2. **El build de Kokoro falló** y Railway dejó activo un **deployment viejo** (de la época Piper).
+3. **Caché de build o timeout** por el peso de Kokoro (`kokoro-onnx` + modelo ~115 MB).
+
+### 👉 Guía clic-por-clic para Rafa (NO técnico) — pídele que haga ESTO y te cuente qué ve
+
+**A) Revisar la variable TTS_ENGINE (2 minutos, lo primero):**
+1. Entra a **railway.app** → inicia sesión → abre el proyecto **optimistic-enthusiasm**.
+2. Clic en el servicio **web**.
+3. Pestaña **Variables** (arriba).
+4. Busca en la lista una variable llamada **`TTS_ENGINE`**.
+   - **Si existe y dice `piper`** → ese es el problema. Cámbiala a **`kokoro`** (o bórrala con el ícono de basura). Railway reiniciará solo. Espera ~2 min y vuelve a abrir la app: el selector debería mostrar **Dora/Alex**. ✅
+   - **Si NO existe `TTS_ENGINE`** → no es esto; pasa al punto B.
+
+**B) Revisar el último deployment (si A no era el problema):**
+1. En el servicio **web** → pestaña **Deployments**.
+2. Mira el de arriba (el **Active**). ¿Su fecha/commit es **reciente** (del último push, commit `3d57d5d` o más nuevo)?
+   - **Si es viejo** → clic en el botón **⋮ (tres puntos)** del último commit → **Redeploy** (o **Deploy latest**). Espera a que termine (barra verde).
+3. Clic en ese deployment → pestaña **Build Logs** y **Deploy Logs**. Copia y **pégale a Claude** lo que veas, sobre todo si hay texto en **rojo/“error/failed”**, o si NO aparecen estas líneas al final:
+   - `[startup] kokoro modelo: /opt/kokoro/kokoro-v1.0.int8.onnx`
+   - `[startup] kokoro voces: /opt/kokoro/voices-v1.0.bin`
+   - (Si dicen **“(NO ENCONTRADO)”** → el build no bajó Kokoro: hay que arreglar el Dockerfile/descarga.)
+
+**C) Si nada de lo anterior lo resuelve:** Rafa puede pegarle a Claude los **Build/Deploy Logs** completos del último deployment, o dar un **token de Railway** (`RAILWAY_TOKEN`) para que Claude lo revise por CLI.
+
+**Cómo saber que quedó arreglado:** abrir la app → **Crear video** → el selector de voz muestra **"Dora · Latina" / "Alex · Latino"** (no "David · España"). Generar un video corto y oír que la voz es latina y más natural.
+
+**Plan B temporal:** si Kokoro no logra arrancar en el contenedor, poner `TTS_ENGINE=piper` deja la voz de España (que ya tiene su fix de pronunciación) funcionando mientras se resuelve. Pero el objetivo es Kokoro (audiencia latina).
+
+**Detalle técnico para el que retome:** la lógica está bien en local (probado). El selector de voz en `app.py` se dibuja según `engine_tts = os.environ.get("TTS_ENGINE") or "kokoro"`. Que producción muestre Piper significa que (a) hay env var `TTS_ENGINE=piper`, o (b) el código desplegado es anterior a `3d57d5d`. Diagnóstico de arranque en `make_video.py` imprime `[startup] kokoro modelo/voces` para confirmarlo en logs.
+
+---
+
+## 0. OTROS PENDIENTES (después de arreglar el deploy de Kokoro)
+
+### PENDIENTE A — Animaciones (Rafa NO conforme) — EN EVALUACIÓN, NO implementado
 Las animaciones gratis actuales (FFmpeg **Ken Burns** = zoom/paneo sobre **imagen fija** de Pollinations) se ven como **"diapositivas con movimiento"**, NO video real. A Rafa **no le convencen**. El video real era **fal.ai Vidu (de pago)**, que sigue disponible con `IMAGE_ENGINE=fal`.
 - **Tarea próxima**: evaluar (investigación real, no de memoria) si existe una opción **GRATIS con más movimiento real** que el Ken Burns, **viable en Railway SIN GPU** y sin disparar costo/lentitud (p. ej. interpolación de frames, motion presets más ricos, animación procedural, modelos ligeros de image-to-video en CPU…). Ser honesto: probablemente el video IA real gratis en CPU NO sea viable.
 - Si no hay opción gratis aceptable → **decidir con Rafa**: quedarse con las "diapositivas animadas" o **reactivar Vidu (de pago)** para video real.
 
-### PENDIENTE 2 — Voz (Rafa NO conforme del todo) — decisión pendiente
+### PENDIENTE B — Voz (Rafa NO conforme del todo) — decisión pendiente
 La calidad de la **voz gratis** (Piper, y Kokoro cuando se confirme en deploy) **no terminó de convencer** a Rafa.
-- **Tarea próxima**: una vez que Kokoro suene de verdad en Railway (Paso 0), que Rafa la escuche y **decida**: aceptar la voz gratis (Kokoro/Piper) o **volver a ElevenLabs (de pago)** con `TTS_ENGINE=elevenlabs` (requiere `ELEVENLABS_API_KEY`).
+- **Tarea próxima**: una vez arreglado el deploy de Kokoro (tarea urgente nº1), que Rafa la escuche y **decida**: aceptar la voz gratis (Kokoro/Piper) o **volver a ElevenLabs (de pago)** con `TTS_ENGINE=elevenlabs` (requiere `ELEVENLABS_API_KEY`).
 
 ---
 
@@ -43,12 +69,12 @@ La calidad de la **voz gratis** (Piper, y Kokoro cuando se confirme en deploy) *
 
 - **Qué es la app**: generador automático de videos cortos (Reels/TikTok/Shorts/YouTube) que orquesta Claude (guion e ideas) + voz + imágenes + FFmpeg (animación, montaje y subtítulos). Frontend Streamlit con persistencia multi-cliente.
 - **El sistema es GRATIS por defecto (en el código)**:
-  - **Voz** → **Kokoro** (TTS local, gratis, **español latino**, más natural). ⚠️ Ver Paso 0: confirmar que está activo en el deploy.
+  - **Voz** → **Kokoro** (TTS local, gratis, **español latino**, más natural) en el código. ⚠️ **OJO: en producción todavía suena Piper** — ver la TAREA PENDIENTE Nº1 arriba.
   - **Imágenes** (escenas sin foto del usuario) → **Pollinations.ai** (gratis, sin llave) + animación **Ken Burns** (zoom/paneo sobre imagen fija → "diapositiva animada").
   - **Animación de imágenes propias del usuario** → **FFmpeg Ken Burns** (local, gratis).
   - **Único costo que queda**: la **API de Claude (Anthropic)**, que escribe los guiones (unos centavos por video).
 - **Interfaz**: identidad visual de marca **"Péptidos y Suplementos (PyS)"** — tema oscuro con resplandores **turquesa `#00E5C4`** / **fucsia `#F7007A`**, tipografía Optima (títulos) + Inter (cuerpo), glassmorphism, botones píldora. Adornos/íconos de **VIDEO/MARKETING** (cámara, claqueta, play), NO de péptidos/salud. Responsive (móvil/escritorio).
-- **Estado**: DESPLEGADA en Railway. Todo lo nuevo está **probado en LOCAL**. ⚠️ **Falta confirmar en el deploy** que Kokoro realmente esté sonando (Paso 0) y resolver las 2 insatisfacciones pendientes (animaciones y voz).
+- **Estado**: DESPLEGADA en Railway. Todo lo nuevo está **probado en LOCAL**. ⚠️ En producción la voz **aún es Piper, no Kokoro** (ver TAREA PENDIENTE Nº1), y quedan 2 insatisfacciones pendientes (animaciones y voz).
 
 ---
 
