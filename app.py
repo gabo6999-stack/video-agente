@@ -799,14 +799,24 @@ def pagina_biblioteca():
 def pagina_config():
     st.header("Llaves API")
     st.caption(
-        f"Archivo: `{CLAVES_PATH}`. Pega cada llave despues del = y guarda. "
-        "Los botones **Recargar** abren la pagina de saldo del proveedor."
+        f"Archivo: `{CLAVES_PATH}`. Pega tu llave despues del = y guarda. "
+        "El boton **Recargar** abre la pagina de saldo del proveedor."
+    )
+    st.info(
+        "La **voz** y las **imagenes** ahora son **gratis** (Piper y Pollinations), "
+        "asi que ya no necesitas llaves de ElevenLabs ni de fal.ai. Solo hace falta "
+        "la llave de **Claude (Anthropic)**, que escribe los guiones."
     )
 
+    # Llaves que YA NO se piden al usuario (la voz e imagenes son gratis). Su codigo
+    # sigue intacto por dentro; si el equipo reactiva el modo de pago (TTS_ENGINE=
+    # elevenlabs / IMAGE_ENGINE=fal), basta con poner esas llaves como variables de
+    # entorno en Railway. No se borran de claves.txt si ya estaban.
+    KEYS_OCULTAS = {"ELEVENLABS_API_KEY", "FAL_KEY", "FAL_API_KEY",
+                    "FAI_API_KEY", "XAI_API_KEY"}
+
     # Banner: que llaves vienen del entorno (Railway)
-    KEYS_CONOCIDAS = ["ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY",
-                      "FAL_KEY", "FAL_API_KEY", "FAI_API_KEY", "APP_PASSWORD"]
-    en_env = [k for k in KEYS_CONOCIDAS if os.environ.get(k)]
+    en_env = [k for k in ("ANTHROPIC_API_KEY", "APP_PASSWORD") if os.environ.get(k)]
     if en_env:
         st.info(
             f"⚙️ **Origen actual**: estas llaves vienen del entorno (Railway): "
@@ -816,24 +826,16 @@ def pagina_config():
     else:
         st.caption("📄 **Origen actual**: solo `claves.txt` (sin variables de entorno).")
 
-    # Si claves.txt no existe o esta vacio, ofrecemos formulario para crearlo
+    # Si claves.txt no existe o esta vacio, ofrecemos formulario para crearlo.
+    # Mostramos solo las llaves que el usuario realmente necesita (no las ocultas).
     filas = _leer_claves_raw() if CLAVES_PATH.exists() else []
-    pares = [(k, v) for _, _, k, v in filas if k]
+    pares = [(k, v) for _, _, k, v in filas if k and k not in KEYS_OCULTAS]
     if not pares:
-        st.warning("`claves.txt` esta vacio o no existe. Llena las llaves que necesites y guarda.")
-        pares = [
-            ("ANTHROPIC_API_KEY", ""),
-            ("ELEVENLABS_API_KEY", ""),
-            ("FAL_KEY", ""),
-        ]
+        st.warning("`claves.txt` esta vacio o no existe. Pega tu llave de Claude y guarda.")
+        pares = [("ANTHROPIC_API_KEY", "")]
 
     nombre_amigable = {
         "ANTHROPIC_API_KEY":  "Claude (Anthropic)",
-        "ELEVENLABS_API_KEY": "ElevenLabs (voz)",
-        "FAL_API_KEY":        "fal.ai (clips de video)",
-        "FAI_API_KEY":        "fal.ai (clips de video) - errata: deberia ser FAL_API_KEY",
-        "FAL_KEY":            "fal.ai (clips de video)",
-        "XAI_API_KEY":        "Grok / xAI (legacy, ya no se usa)",
     }
 
     nuevos = {}
@@ -871,19 +873,14 @@ def pagina_config():
 
     st.divider()
     st.subheader("Atajos de recarga")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.link_button("ElevenLabs · Subscription",
-                       URL_BILLING["ELEVENLABS_API_KEY"],
-                       use_container_width=True)
-    with c2:
-        st.link_button("fal.ai · Credits",
-                       URL_BILLING["FAL_API_KEY"],
-                       use_container_width=True)
-    with c3:
-        st.link_button("Anthropic · Billing",
-                       URL_BILLING["ANTHROPIC_API_KEY"],
-                       use_container_width=True)
+    st.link_button("Anthropic · Billing (Claude)",
+                   URL_BILLING["ANTHROPIC_API_KEY"],
+                   use_container_width=True)
+    st.caption(
+        "La voz (Piper) y las imagenes (Pollinations) son gratis: no tienen recarga. "
+        "Para volver al modo de pago (ElevenLabs / fal Vidu), el equipo tecnico debe "
+        "poner `TTS_ENGINE=elevenlabs` o `IMAGE_ENGINE=fal` y sus llaves en Railway."
+    )
 
 
 # ==============================================================================
@@ -917,21 +914,25 @@ def _pill(text, color):
 def render_sidebar():
     st.sidebar.markdown("## 🎬 Video Auto")
 
-    # Saldo ElevenLabs (cache 5min)
-    try:
-        _, eleven_key, _ = generar.cargar_llaves()
-    except Exception:
-        eleven_key = None
-    bal = _eleven_balance(eleven_key) if eleven_key else None
-    if bal:
-        restantes = max(0, bal["limite"] - bal["usados"])
-        pct = (bal["usados"] / bal["limite"] * 100) if bal["limite"] else 0
-        st.sidebar.caption(
-            f"ElevenLabs · {restantes:,} chars restantes · "
-            f"{pct:.0f}% usado · plan {bal['plan']}"
-        )
+    # Saldo ElevenLabs: SOLO se muestra si el equipo reactivo la voz de pago
+    # (TTS_ENGINE=elevenlabs). Por defecto la voz es Piper (gratis) y no aplica.
+    if (os.environ.get("TTS_ENGINE") or "piper").strip().lower() == "elevenlabs":
+        try:
+            _, eleven_key, _ = generar.cargar_llaves()
+        except Exception:
+            eleven_key = None
+        bal = _eleven_balance(eleven_key) if eleven_key else None
+        if bal:
+            restantes = max(0, bal["limite"] - bal["usados"])
+            pct = (bal["usados"] / bal["limite"] * 100) if bal["limite"] else 0
+            st.sidebar.caption(
+                f"ElevenLabs · {restantes:,} chars restantes · "
+                f"{pct:.0f}% usado · plan {bal['plan']}"
+            )
+        else:
+            st.sidebar.caption("ElevenLabs · saldo no disponible")
     else:
-        st.sidebar.caption("ElevenLabs · saldo no disponible")
+        st.sidebar.caption("Voz e imagenes: gratis ✓")
 
     if "_pagina" not in st.session_state:
         st.session_state["_pagina"] = "Crear video"
