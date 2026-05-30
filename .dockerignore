@@ -16,6 +16,10 @@ video_run.log
 streamlit.log
 gh_auth.log
 
+# Piper local (./piper): NO enviar al contexto Docker; el Dockerfile descarga
+# el binario y las voces directamente en /opt/piper durante el build.
+piper/
+
 # Backups de config viejos
 nixpacks.toml.bak
 Procfile.bak

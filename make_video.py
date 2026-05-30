@@ -104,7 +104,15 @@ CONFIG = {
     "outro_bg_color":    "black", # fondo de la pantalla final
     "outro_logo_scale":  0.6,     # logo ocupa este % del ancho del video
 
-    # --- ElevenLabs (voz) ---
+    # --- Motor de voz (TTS) ---
+    # "piper" = voz local GRATIS (por defecto). "elevenlabs" = voz de pago.
+    # Se puede forzar globalmente con la variable de entorno TTS_ENGINE (tiene
+    # prioridad sobre esto). Es el "interruptor" para volver a ElevenLabs.
+    "tts_engine":       "piper",
+    "piper_voice":      "es_ES-davefx-medium",  # voz Piper por defecto (masculina, neutra)
+    "piper_speaker":    None,                    # indice de speaker (voces multi-speaker)
+
+    # --- ElevenLabs (voz de pago, queda detras del interruptor) ---
     "voice_id":         "TxGEqnHWrfWFTfGW9XjX",
     "tts_model":        "eleven_multilingual_v2",
     "voice_stability":   0.40,
@@ -211,6 +219,10 @@ def _leer_claves_txt():
 
 
 def cargar_llaves():
+    """Carga llaves de forma TOLERANTE. Ya NO aborta si faltan: con voz Piper e
+    imagenes Pollinations (ambos gratis, por defecto) no se necesita ElevenLabs
+    ni fal. Cada llave se valida en el momento de usarse, solo si el motor de pago
+    correspondiente esta activo. Asi el equipo puede correr todo gratis sin llaves."""
     archivo = _leer_claves_txt()
     eleven = os.environ.get("ELEVENLABS_API_KEY") or archivo.get("ELEVENLABS_API_KEY")
     fal = None
@@ -219,11 +231,12 @@ def cargar_llaves():
         if fal:
             break
     if not eleven:
-        sys.exit("ERROR: falta ELEVENLABS_API_KEY (env o claves.txt)")
+        log("AVISO: sin ELEVENLABS_API_KEY (ok si la voz es Piper, que es lo normal).")
     if not fal:
-        sys.exit("ERROR: falta FAL_KEY/FAL_API_KEY/FAI_API_KEY (env o claves.txt)")
+        log("AVISO: sin FAL_KEY (ok si las imagenes son gratis / propias).")
     # fal_client lee FAL_KEY de env; lo seteamos para que la libreria lo encuentre
-    os.environ["FAL_KEY"] = fal
+    if fal:
+        os.environ["FAL_KEY"] = fal
     return eleven, fal
 
 
@@ -256,6 +269,73 @@ def generar_voz(texto, salida_mp3):
     dur = media_duration(salida_mp3)
     log(f"ElevenLabs: voz lista ({dur:.1f}s)")
     return dur
+
+
+# ==============================================================================
+#  PIPER (voz local GRATIS)  ->  MP3 de narracion
+# ==============================================================================
+#  Motor de TTS neuronal open-source que corre en CPU, sin API ni costo.
+#  Binario self-contained + modelos de voz se instalan en el Dockerfile dentro
+#  de PIPER_DIR (por defecto /opt/piper en el deploy, ./piper en local).
+#  Cada voz son dos archivos: <key>.onnx y <key>.onnx.json en PIPER_DIR/voices/.
+# ==============================================================================
+def _piper_dir():
+    return os.environ.get("PIPER_DIR") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "piper")
+
+
+def _piper_bin():
+    d = _piper_dir()
+    for nombre in ("piper", "piper.exe"):
+        p = os.path.join(d, nombre)
+        if os.path.exists(p):
+            return p
+    return shutil.which("piper")  # fallback: piper en PATH
+
+
+def generar_voz_piper(texto, salida_mp3, voice=None, speaker=None):
+    """Genera la narracion con Piper (local, gratis) y la deja en MP3 (mismo
+    formato que ElevenLabs para no tocar persistencia ni montaje)."""
+    voice = voice or CONFIG.get("piper_voice", "es_ES-davefx-medium")
+    binp = _piper_bin()
+    if not binp:
+        raise RuntimeError(
+            "Piper no esta instalado (no encontre el binario en PIPER_DIR ni en PATH). "
+            "En el deploy se instala via Dockerfile; en local descarga el binario en ./piper.")
+    modelo = os.path.join(_piper_dir(), "voices", f"{voice}.onnx")
+    if not os.path.exists(modelo):
+        raise RuntimeError(f"Voz Piper no encontrada: {modelo}")
+
+    log(f"Piper (gratis): generando voz ({len(texto)} caracteres, voz={voice})...")
+    wav = os.path.splitext(salida_mp3)[0] + ".wav"
+    cmd = [binp, "--model", modelo, "--output_file", wav]
+    if speaker is not None:
+        cmd += ["--speaker", str(speaker)]
+    r = subprocess.run(cmd, input=texto, capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.exists(wav):
+        raise RuntimeError(f"Piper fallo (codigo {r.returncode}): {(r.stderr or '')[-800:]}")
+
+    # WAV -> MP3 (192k) para mantener el mismo formato que la voz de ElevenLabs
+    run(["ffmpeg", "-y", "-i", wav, "-c:a", "libmp3lame", "-b:a", "192k", salida_mp3])
+    try:
+        os.remove(wav)
+    except OSError:
+        pass
+    dur = media_duration(salida_mp3)
+    log(f"Piper: voz lista ({dur:.1f}s).")
+    return dur
+
+
+def generar_narracion(texto, salida_mp3):
+    """Despacha la generacion de voz al motor activo. Por defecto Piper (gratis).
+    Se puede forzar con la variable de entorno TTS_ENGINE (prioridad) o con
+    CONFIG['tts_engine']. ElevenLabs queda disponible como respaldo de pago."""
+    engine = (os.environ.get("TTS_ENGINE") or CONFIG.get("tts_engine") or "piper").strip().lower()
+    if engine == "elevenlabs":
+        return generar_voz(texto, salida_mp3)
+    return generar_voz_piper(texto, salida_mp3,
+                             voice=CONFIG.get("piper_voice"),
+                             speaker=CONFIG.get("piper_speaker"))
 
 
 # ==============================================================================
@@ -503,7 +583,7 @@ def procesar_escena(idx, esc, work):
     else:
         if os.path.exists(voz_mp3):
             os.remove(voz_mp3)
-        voz_dur = generar_voz(esc["narracion"], voz_mp3)
+        voz_dur = generar_narracion(esc["narracion"], voz_mp3)
 
     # Clip: reutilizar si vale, pedir a fal si no
     if _es_media_valido(clip_mp4):

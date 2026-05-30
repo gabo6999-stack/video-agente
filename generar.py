@@ -37,6 +37,26 @@ PRECIO_X_SEG      = 0.035
 COSTO_DEFAULT     = N_ESCENAS_DEFAULT * SEG_X_ESCENA * PRECIO_X_SEG  # $1.26
 MODELO_CLAUDE     = "claude-sonnet-4-6"
 
+# Catalogo curado de voces Piper en espanol (gratis, locales). Elegidas por ser
+# las mas NEUTRAS y NATURALES del catalogo oficial (se descartan las x_low/low
+# por sonar roboticas, y es_AR por acento muy marcado). El usuario solo escoge.
+#   key      = nombre del modelo (define el archivo .onnx que instala el Dockerfile)
+#   speaker  = indice de speaker para voces multi-speaker (None si es de una sola)
+PIPER_VOCES = [
+    {"key": "es_ES-sharvard-medium", "nombre": "Sara · España",   "genero": "femenino",  "speaker": 1},
+    {"key": "es_MX-claude-high",     "nombre": "Carla · México",  "genero": "femenino",  "speaker": None},
+    {"key": "es_ES-davefx-medium",   "nombre": "David · España",  "genero": "masculino", "speaker": None},
+    {"key": "es_MX-ald-medium",      "nombre": "Alberto · México","genero": "masculino", "speaker": None},
+]
+PIPER_VOZ_DEFAULT = "es_ES-davefx-medium"
+
+
+def piper_voz_por_key(key):
+    for v in PIPER_VOCES:
+        if v["key"] == key:
+            return v
+    return None
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -70,12 +90,12 @@ def cargar_llaves():
         fal = os.environ.get(alias) or arch.get(alias)
         if fal:
             break
-    faltan = []
-    if not anthro: faltan.append("ANTHROPIC_API_KEY")
-    if not eleven: faltan.append("ELEVENLABS_API_KEY")
-    if not fal:    faltan.append("FAL_KEY/FAL_API_KEY/FAI_API_KEY")
-    if faltan:
-        raise RuntimeError(f"Faltan llaves: {', '.join(faltan)}")
+    # Solo Anthropic (Claude) es OBLIGATORIA: siempre se usa para el guion.
+    # ElevenLabs y fal son OPCIONALES: con voz Piper e imagenes gratis (lo normal
+    # ahora) no hacen falta. Si faltan, se devuelven como None y cada funcion las
+    # exige solo si su motor de pago esta activo.
+    if not anthro:
+        raise RuntimeError("Faltan llaves: ANTHROPIC_API_KEY")
     return anthro, eleven, fal
 
 
@@ -388,10 +408,13 @@ def script_a_brief(idea, guion):
 def validar_guion(guion, n_escenas, voces):
     if not isinstance(guion, dict) or "config" not in guion or "escenas" not in guion:
         raise RuntimeError("Guion mal formado: falta 'config' o 'escenas'.")
-    voz_id = guion["config"].get("voice_id")
-    voces_ids = {v["voice_id"] for v in voces}
-    if voz_id not in voces_ids:
-        raise RuntimeError(f"voice_id '{voz_id}' no esta en tu cuenta ElevenLabs.")
+    # Solo validamos el voice_id de ElevenLabs cuando hay lista de voces (modo
+    # ElevenLabs). Con Piper la voz la elige el usuario y voces va vacia: se omite.
+    if voces:
+        voz_id = guion["config"].get("voice_id")
+        voces_ids = {v["voice_id"] for v in voces}
+        if voz_id not in voces_ids:
+            raise RuntimeError(f"voice_id '{voz_id}' no esta en tu cuenta ElevenLabs.")
     if not guion["escenas"]:
         raise RuntimeError("El guion no tiene escenas.")
 

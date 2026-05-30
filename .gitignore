@@ -21,6 +21,11 @@ guion.txt
 video_run.log
 streamlit.log
 
+# Piper (voz local): binario y modelos de voz pesan ~90MB. En local se descargan
+# a ./piper para pruebas; en el deploy los instala el Dockerfile en /opt/piper.
+# NO van al repo.
+piper/
+
 # =========================================
 #  Python
 # =========================================
