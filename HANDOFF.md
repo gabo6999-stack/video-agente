@@ -4,7 +4,7 @@ Documento de continuidad. **Lee este archivo entero antes de tocar nada.**
 Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un chat nuevo de Claude web.
 
 - Última actualización: 2026-05-30
-- Último commit en `main`: **`0b190ed`** (`feat: animar imágenes con FFmpeg Ken Burns gratis, reemplaza Vidu image-to-video`)
+- Último commit en `main`: **`d117541`** (`feat(config): ocultar llaves de ElevenLabs y fal del setting`)
 - URL pública activa: **https://videoagenterafa.up.railway.app**
 - Repo: **https://github.com/gabo6999-stack/video-agente** (privado, rama `main`)
 
@@ -12,189 +12,170 @@ Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un
 
 ## 1. Resumen ejecutivo
 
-- **Qué es la app**: generador automático de videos cortos verticales (Reels/TikTok/Shorts) que orquesta Claude (guion e ideas) + ElevenLabs (voz) + fal.ai Vidu Q3 Turbo (clips) + FFmpeg (montaje y subtítulos). Frontend Streamlit con persistencia multi-cliente.
-- **Estado actual**: DESPLEGADA Y FUNCIONANDO en https://videoagenterafa.up.railway.app. La app carga, las 3 APIs responden, falta solo validar la generación completa en producción.
-- **Lo último que se hizo (2026-05-30)**: se reemplazó el modo imagen-a-video. Antes las imágenes del usuario se mandaban a fal.ai Vidu (`image-to-video`, $0.07/s) para animarlas. Ahora se animan **localmente y GRATIS con FFmpeg** (efecto Ken Burns: zoom/paneo suave, movimiento variado por escena, salida 9:16 con la duración de la voz). Costo de animación de esas escenas = $0. El modo texto-a-video (fal Vidu Turbo) quedó intacto. Se actualizaron los textos y el cálculo de costo en la app. (Antes de esto: se borró el campo *Custom Start Command* del dashboard de Railway, que sobrescribía el `CMD` del Dockerfile.)
+- **Qué es la app**: generador automático de videos cortos (Reels/TikTok/Shorts/YouTube) que orquesta Claude (guion e ideas) + voz + imágenes + FFmpeg (animación, montaje y subtítulos). Frontend Streamlit con persistencia multi-cliente.
+- **GRAN CAMBIO (2026-05-30): el sistema pasó a GRATIS por defecto.** Antes dependía de 3 APIs de pago (ElevenLabs voz + fal.ai Vidu video + Anthropic). Ahora:
+  - **Voz** → **Piper** (TTS local, gratis). ElevenLabs queda como respaldo detrás de un interruptor.
+  - **Imágenes** (escenas sin foto del usuario) → **Pollinations.ai** (gratis, sin llave) + animación Ken Burns. fal.ai Vidu queda como respaldo detrás de un interruptor.
+  - **Animación de imágenes propias** → **FFmpeg Ken Burns** (local, gratis, ya estaba).
+  - **Único costo que queda**: la **API de Claude (Anthropic)**, que escribe los guiones (unos centavos por video).
+- **Estado**: DESPLEGADA en Railway. Todos los cambios nuevos están **probados en local** (incluida una corrida completa de 2 escenas: voz Piper + imágenes Pollinations + Ken Burns + subtítulos + montaje → MP4 9:16 correcto). **Falta validar en el deploy de Railway** (sobre todo: que el Dockerfile descargue bien Piper y que la calidad de voz/imágenes convenza).
 
 ---
 
-## 2. Arquitectura y stack
+## 2. Interruptores (cómo volver al modo de pago)
 
-- **Frontend**: Streamlit (1.57.0). Sidebar con 3 grupos visualmente diferenciados por píldoras de color:
+Todo el código de ElevenLabs y fal sigue intacto. Para reactivarlos, el equipo técnico pone variables de entorno en Railway (NO hace falta tocar código):
+
+| Variable de entorno | Valores | Por defecto | Efecto |
+|---|---|---|---|
+| `TTS_ENGINE` | `piper` / `elevenlabs` | `piper` | Motor de voz. `elevenlabs` requiere `ELEVENLABS_API_KEY`. |
+| `IMAGE_ENGINE` | `pollinations` / `fal` | `pollinations` | Imágenes de escenas sin foto. `fal` (video real Vidu) requiere `FAL_KEY`. |
+
+También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`, `image_engine`), pero la variable de entorno **tiene prioridad**.
+
+---
+
+## 3. Arquitectura y stack
+
+- **Frontend**: Streamlit (1.57.0). Sidebar con 3 grupos (píldoras de color):
   - 🔵 **PRODUCIR** — Crear video, Usar mis imágenes
   - 🟢 **IDEAS Y CLIENTES** — Ideas desde keywords, Repositorio / calendario
   - 🟠 **SISTEMA** — Biblioteca de videos, Configuración (llaves)
-  - Cabecera del sidebar con el saldo de ElevenLabs (1 sola API expone saldo público; fal y Anthropic no).
-- **Backend**: Python 3.13, librerías ancladas en `requirements.txt`. SDKs: `anthropic`, `fal-client`. ElevenLabs vía REST (`requests`). FFmpeg + ffprobe vía subprocess.
-- **Modelos por defecto**:
-  - **Claude**: `claude-sonnet-4-6` para guiones (a partir de descripción libre) y para ideas + scripts (a partir de keywords). Caching ephemeral sobre el system prompt.
-  - **ElevenLabs**: cualquier voice_id de la cuenta. Claude la elige automáticamente según el tono pedido consultando `GET /v1/voices` en vivo. Modelo TTS: `eleven_multilingual_v2`.
-  - **fal.ai Vidu Q3 Turbo 540p**: `fal-ai/vidu/q3/text-to-video/turbo` ($0.035/s, ~$0.21 por clip de 6s). Solo se usa para **texto-a-video** (escenas sin imagen propia).
-  - **Imagen-a-video (animar imágenes del usuario)**: ⚠️ YA NO usa fal.ai. Ahora se hace **localmente y GRATIS con FFmpeg** (efecto Ken Burns: zoom/paneo suave sobre la imagen fija). Ver `generar_clip_kenburns()` en `make_video.py`. Costo de animación = **$0** (solo se paga la voz de ElevenLabs).
-- **Deploy**: Railway con **Dockerfile** propio (NO Nixpacks, NO Railpack). Puerto fijo **8080**, sin password (equipo interno, link cerrado).
+  - Cabecera del sidebar: si la voz es Piper (default) muestra "Voz e imágenes: gratis ✓"; solo muestra saldo de ElevenLabs si `TTS_ENGINE=elevenlabs`.
+- **Backend**: Python 3.13. SDKs: `anthropic`, `fal-client` (solo si se reactiva fal). ElevenLabs y Pollinations vía REST (`requests`). FFmpeg + ffprobe vía subprocess. **Piper** vía subprocess (binario en `/opt/piper`).
+- **Motores por defecto**:
+  - **Claude**: `claude-sonnet-4-6` para guiones e ideas. Caching ephemeral sobre el system prompt. **(de pago, único costo)**
+  - **Voz — Piper** (gratis, local, CPU): catálogo curado de 4 voces neutras en español (ver `generar.PIPER_VOCES`):
+    - Femeninas: `es_ES-sharvard-medium` (Sara·España, speaker 1), `es_MX-claude-high` (Carla·México)
+    - Masculinas: `es_ES-davefx-medium` (David·España, **default**), `es_MX-ald-medium` (Alberto·México)
+    - El usuario solo ESCOGE la voz en "Crear video" (separadas femeninas/masculinas). No se "educa" por texto.
+  - **Imágenes — Pollinations.ai** (gratis, sin llave): `https://image.pollinations.ai/prompt/{prompt}?width=&height=&model=flux&nologo=true&seed=`. Se pide al doble del tamaño de salida para que el Ken Burns tenga resolución. Reintentos con espera (límite ~1 img/15s).
+  - **fal.ai Vidu Q3 Turbo** (respaldo de pago): `fal-ai/vidu/q3/text-to-video/turbo` ($0.035/s). Solo si `IMAGE_ENGINE=fal`.
+- **Deploy**: Railway con **Dockerfile** propio. Puerto fijo **8080**, sin password.
 
 ---
 
-## 3. Archivos del proyecto
+## 4. Archivos del proyecto
 
 ### Código y configuración activos
 
 | Archivo | Función |
 |---|---|
-| `app.py` | Frontend Streamlit. Sidebar con 3 grupos, login gate opcional vía `APP_PASSWORD` env, las 6 páginas, descarga de videos generados, diagnóstico de arranque (`[startup]` ffmpeg/ffprobe). Orquesta llamadas a `generar.py` y `make_video.py`. |
-| `make_video.py` | Pipeline core. Lee `guion.json`, por escena: genera voz (ElevenLabs), genera clip mudo (si hay imagen propia del usuario → **Ken Burns local con FFmpeg, gratis**, vía `generar_clip_kenburns()`; si no → fal Vidu Q3 texto-a-video), monta con FFmpeg respetando "la voz manda" (`-t voz_dur` + `tpad`). Persistencia en `.trabajo_<output>/` con reanudación y 3 reintentos por clip (los reintentos aplican a t2v; el Ken Burns es local y no reintenta). Outro opcional con logo. Quema subtítulos elegantes. `media_duration()` tiene fallback `ffmpeg -i` si `ffprobe` no está. |
-| `generar.py` | "Cerebro" Claude API. Funciones públicas: `cargar_llaves()`, `obtener_voces_elevenlabs()`, `pedir_guion_a_claude()` (descripción libre → guion), `proponer_ideas()` y `generar_script_para_idea()` (desde keywords), `script_a_brief()`, `calcular_costo()`, `calcular_costo_mixto()`. Defaults estándar: 6 escenas × 6s × $0.035/s = **$1.26/video**. |
-| `clientes.py` | Persistencia por cliente. `ruta_cliente(name, crear=True/False)` evita crear carpetas fantasma desde lecturas. `leer_keywords_excel()` tolerante a nombres ("palabra clave"/"keyword"/"kw" y "volumen"/"search volume"/etc). `listar_clientes()` filtra solo carpetas con `meta.json`. Guardar/leer keywords, ideas, scripts. |
-| `Dockerfile` | `FROM python:3.13-slim`, `apt-get install ffmpeg` (incluye ffprobe), `COPY . .`, `CMD ["sh","-c","unset STREAMLIT_SERVER_* && exec streamlit run app.py --server.port=8080 ..."]`. `EXPOSE 8080`. |
-| `railway.json` | Forza Railway a usar `builder: "DOCKERFILE"` y `dockerfilePath: "./Dockerfile"`. Sin esto Railway intenta autodetectar con Railpack y reescribe el CMD. |
-| `.dockerignore` | Excluye del contexto Docker: `claves.txt`, `clientes/`, `.uploads/`, `.trabajo_*/`, `*.mp4`, logs, `.git/`, `__pycache__/`. |
-| `requirements.txt` | Pins exactos: `streamlit==1.57.0`, `anthropic==0.104.1`, `requests==2.34.2`, `pandas==2.2.3`, `openpyxl==3.1.5`, `fal-client==1.0.0`. |
-| `CLAUDE.md` | Instrucciones del proyecto para Claude Code. Define el flujo "haz el video" original (lee `guion.txt`, divide en escenas, genera `guion.json`, ejecuta `make_video.py`). Reglas heredadas: prompts visuales en inglés, vertical 9:16, repetir descripciones de entidades. **Algunas reglas están desactualizadas** (CLAUDE.md asume el flujo CLI viejo; el flujo real ahora es Streamlit + `generar.py`). |
-| `.gitignore` | Excluye del repo: `claves.txt`, `clientes/`, `.uploads/`, `.trabajo_*/`, `*.mp4`, `guion.json`, `guion.txt`, `*.log`, `__pycache__/`. |
+| `app.py` | Frontend Streamlit. "Crear video" tiene: nº escenas, **selector de formato** (9:16 / 16:9 / 1:1), toggle subtítulos, **selector de voz Piper** (femeninas/masculinas), expander para subir imágenes propias + logo. Cálculo de costo que muestra **"gratis"** por defecto. Orquesta `generar.py` y `make_video.py`. Página Configuración solo muestra la llave de Claude (las de ElevenLabs/fal están ocultas pero su código sigue). |
+| `make_video.py` | Pipeline core. Por escena: **voz** (`generar_narracion()` → Piper por defecto / ElevenLabs); **clip mudo**: si hay foto del usuario → `generar_clip_kenburns()`; si no y `IMAGE_ENGINE=pollinations` → `generar_imagen_pollinations()` + Ken Burns; si `=fal` → `generar_clip()` (Vidu). Monta respetando "la voz manda" (`-t voz_dur` + `tpad`). Persistencia en `.trabajo_<output>/` con reanudación (voz, imagen IA `imgia_N.png`, clip y escena se reutilizan si son válidos). Outro opcional con logo. Subtítulos pequeños. `cargar_llaves()` ya NO aborta si faltan ElevenLabs/fal. |
+| `generar.py` | "Cerebro" Claude API. `cargar_llaves()` (solo exige Anthropic), `obtener_voces_elevenlabs()`, `pedir_guion_a_claude(..., aspect_ratio=)` (acepta formato, fuerza aspect_ratio en el config), `proponer_ideas()`, `generar_script_para_idea()`, `calcular_costo()`, `calcular_costo_mixto()`, catálogo `PIPER_VOCES` + `FORMATOS`. `validar_guion()` omite el voice_id de ElevenLabs cuando se usa Piper. |
+| `clientes.py` | Persistencia por cliente (keywords, ideas, scripts). Sin cambios recientes. |
+| `Dockerfile` | `FROM python:3.13-slim`, instala `ffmpeg curl ca-certificates libstdc++6 libgomp1`, **descarga el binario Piper + 4 voces es a `/opt/piper`** (env `PIPER_DIR=/opt/piper`, `LD_LIBRARY_PATH=/opt/piper`), pip install, `COPY . .`, `CMD` con `unset STREAMLIT_*` + streamlit en puerto 8080. |
+| `railway.json` | Forza `builder: "DOCKERFILE"`. |
+| `.dockerignore` / `.gitignore` | Excluyen `claves.txt`, `clientes/`, `.uploads/`, `.trabajo_*/`, `*.mp4`, y **`piper/`** (binario+voces locales ~90 MB; en el deploy se bajan al build). |
+| `requirements.txt` | `streamlit==1.57.0`, `anthropic==0.104.1`, `requests==2.34.2`, `pandas==2.2.3`, `openpyxl==3.1.5`, `fal-client==1.0.0`. |
+| `CLAUDE.md` | Instrucciones del flujo CLI viejo. **Parcialmente desactualizado** (el flujo real es Streamlit). |
 
-### Archivos secundarios
-
+### Secundarios
 | Archivo | Función |
 |---|---|
-| `prueba_fal.py` | Script standalone para probar la API de fal con un clip de prueba (~$0.21). Útil para diagnosticar si fal responde sin tocar el pipeline. |
-| `guion.txt`, `guion.json` | Inputs/outputs efímeros del pipeline. Ignorados por git y docker. |
-| `nixpacks.toml.bak`, `Procfile.bak` | Configs muertas de intentos previos con Nixpacks/Railpack. Conservadas como historial, no se usan. Ignoradas en `.dockerignore`. |
+| `prueba_fal.py` | Prueba standalone de fal (solo útil si se reactiva el modo de pago). |
+| `piper/` (local, gitignored) | Binario Piper Windows + voces para pruebas locales. NO va al repo. |
+| `nixpacks.toml.bak`, `Procfile.bak` | Configs muertas. No se usan. |
 
 ---
 
-## 4. Configuración actual de Railway
+## 5. Configuración de Railway
 
 | Campo | Valor |
 |---|---|
-| Workspace | **gabo6999-stack** (plan PRO, $20/mes) |
-| Proyecto | **optimistic-enthusiasm** (ID empieza con `31beacc3-264a-43eb-a4e4-...`) |
-| Servicio | **web** |
-| URL pública | **videoagenterafa.up.railway.app** |
-| Builder | **DOCKERFILE** (forzado vía `railway.json`) |
-| Dockerfile path | `./Dockerfile` |
-| Puerto | **8080** (hardcodeado en `Dockerfile`, `EXPOSE 8080`) |
+| Workspace | **gabo6999-stack** (plan PRO) |
+| Proyecto | **optimistic-enthusiasm** |
+| Servicio | **web** · URL **videoagenterafa.up.railway.app** |
+| Builder | **DOCKERFILE** (forzado vía `railway.json`) · Puerto **8080** |
 | **Custom Start Command** | **VACÍO** — ⚠️ CRÍTICO: NO volver a llenarlo |
-| Variables de entorno | `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `FAL_KEY` |
-| `APP_PASSWORD` | NO configurada (sin login, decisión del equipo) |
-| Disco | **EFÍMERO**: `clientes/`, `.uploads/`, `*.mp4`, `.trabajo_*/` se borran en cada redeploy o restart del contenedor |
+| Variables de entorno | `ANTHROPIC_API_KEY` (única **obligatoria**). `ELEVENLABS_API_KEY` y `FAL_KEY` ahora son OPCIONALES (solo si se reactiva el modo de pago con `TTS_ENGINE`/`IMAGE_ENGINE`). |
+| `APP_PASSWORD` | NO configurada (sin login). |
+| Disco | **EFÍMERO**: todo lo generado se borra en cada redeploy/restart. |
 
 ---
 
-## 5. Configuración de GitHub
+## 6. Configuración de GitHub
 
-| Campo | Valor |
-|---|---|
-| Cuenta/Org | **gabo6999-stack** |
-| Repo | **gabo6999-stack/video-agente** |
-| Visibilidad | Privado (el equipo decidió privado finalmente; se creó público y se cambió a privado desde Settings) |
-| Rama default | `main` |
-| Último commit | **`42a3d84`** — `fix(railway): force DOCKERFILE builder + unset injected STREAMLIT_SERVER_PORT` |
-| Commit del puerto fijo | `e00bc16` — `fix(railway): hardcode port 8080, drop $PORT expansion` (este es el que importa funcionalmente; los siguientes fueron intentos que no aplicaron porque el bug real estaba en el dashboard) |
-
-Autenticación en este proyecto: `gh` CLI 2.93.0 instalado en `C:\Program Files\GitHub CLI\gh.exe`. Sesión activa como `gabo6999-stack` (token guardado por gh; no se necesita re-login para push).
-
----
-
-## 6. Cronología de problemas resueltos (ya superados, NO repetir)
-
-1. **"Connection error" con Claude API en sesiones iniciales**
-   - Causa: la llave inicial era inválida.
-   - Solución: se reemplazó por una nueva válida en `claves.txt` (local) y en Railway → Variables (producción).
-
-2. **`ffprobe` no encontrado en Railway** (loop "[Errno 2] No such file or directory: 'ffprobe'")
-   - Causa: primero usamos `nixpacks.toml` con `aptPkgs = ["ffmpeg"]`; los binarios quedaban en `/usr/bin` pero el PATH del runtime no los exponía. Después se descubrió que Railway estaba usando **Railpack autodetect** que ignoraba el `nixpacks.toml`.
-   - Solución: switch a **Dockerfile propio** con `FROM python:3.13-slim` + `apt-get install ffmpeg` (el paquete apt incluye `ffprobe` en el mismo bin/). Forzado vía `railway.json` con `builder: "DOCKERFILE"`.
-
-3. **`Error: Invalid value for '--server.port': '$PORT' is not a valid integer`** (loop infinito)
-   - Causa raíz: el dashboard de Railway (Settings → Deploy → **Custom Start Command**) tenía pegado un comando literal `streamlit run ... --server.port=$PORT ...` que sobrescribía el `CMD` del Dockerfile, y `$PORT` no se expandía porque la variable PORT no estaba expuesta en este servicio (verificado en Variables).
-   - Intentos previos que NO solucionaron: shell-form CMD, exec-form, `sh -c`, hardcode 8080 en Dockerfile, `unset STREAMLIT_SERVER_PORT`. Todos quedaron pisados por el Custom Start Command.
-   - **Solución definitiva**: borrar manualmente el contenido del campo *Custom Start Command* del dashboard. Sin commit, sin código. Solo dejar ese campo vacío.
+- Cuenta/Org: **gabo6999-stack** · Repo: **gabo6999-stack/video-agente** (privado) · Rama: `main`
+- `gh` CLI 2.93.0 autenticado como `gabo6999-stack` (no requiere re-login para push).
+- Identidad de commits del repo: `Video Agente <enlace@grupoptm.com>` (configurada en el repo).
 
 ---
 
 ## 7. Funcionalidades implementadas
 
-Todas probadas en local. Estado en nube indicado entre paréntesis.
-
-- **Modo texto-a-video** (default): describes el tema, Claude redacta el guion y los prompts visuales, fal Vidu Q3 Turbo genera los clips.
-- **Modo "usar mis imágenes"** (mixto): subes hasta N imágenes propias en la sección opcional; las primeras N escenas se animan **GRATIS en local con FFmpeg Ken Burns** (zoom/paneo suave, movimiento variado por escena, salida 9:16 que calza con el resto); las restantes usan texto-a-video. **Costo de animación de esas escenas = $0** (solo se paga la voz). El costo se recalcula en vivo y el botón muestra "gratis" cuando todas las escenas usan tus fotos.
-- **Logo outro opcional**: subes un PNG (con transparencia ok), se agrega como pantalla final de 2.5s sobre fondo negro. No cuesta API.
-- **Toggle de subtítulos**: ON por defecto, estilo Reels (Arial 14, bold, borde 1.4px, margen V=60, máximo 2 líneas con wrap balanceado por palabras).
-- **Defaults estándar**: 6 escenas × 6s × $0.035/s = **$1.26/video**. Si pides más escenas, calcula y pide confirmación.
-- **"Ideas desde keywords"**: por cliente, sube un Excel con `palabra clave` + `volumen de búsqueda` (acepta variantes), Claude propone 5–10 ideas; cada idea tiene botón "Generar script" (escribe el guion completo de 6 escenas siguiendo las reglas) y luego "Enviar al generador" (precarga la descripción en "Crear video" vía `session_state`, NO genera nada hasta que el usuario pulse Generar manualmente).
-- **Repositorio / calendario**: por cliente, vista listado de últimas ideas + scripts guardados, cada uno expandible con "Enviar al generador".
-- **Biblioteca de videos**: lista los `.mp4` de la carpeta del proyecto con preview inline y botón de descarga.
-- **Sincronía "la voz manda"**: `voz_dur = media_duration(voz_mp3)` define la duración exacta del scene. `-t voz_dur` + `tpad=stop_mode=clone:stop_duration=...` rellena con frame congelado si el clip es más corto.
-- **Persistencia y reanudación**: `.trabajo_<output_slug>/` guarda `voz_N.mp3`, `clip_N.mp4`, `escena_N.mp4` por escena. Si una escena falla tras 3 reintentos, las demás se conservan y el script avisa cuáles faltan; basta re-correr el mismo comando para reintentar solo ésas.
+- **Crear video** (texto): describes el tema, Claude redacta guion y prompts visuales; las escenas se generan con imágenes gratis (Pollinations) animadas con Ken Burns; voz Piper.
+- **Usar mis imágenes**: subes 1 imagen por escena; se animan GRATIS con Ken Burns (zoom/paneo variado por escena). Las escenas sin foto se completan con imágenes IA gratis.
+- **Selector de formato**: Vertical 9:16 (default), Horizontal 16:9 (YouTube), Cuadrado 1:1. Se respeta en clips, Ken Burns y subtítulos.
+- **Selector de voz** (Piper): femeninas / masculinas, neutras. El usuario elige.
+- **Subtítulos** estilo Reels, **pequeños** (FontSize 7, outline 1.0, MarginV 45) — no tapan el centro. Toggle ON por defecto.
+- **Logo outro opcional**: PNG como cierre de 2.5s sobre negro.
+- **"Ideas desde keywords"** y **Repositorio / calendario**: por cliente, igual que antes.
+- **Biblioteca de videos**: lista los .mp4 con preview y descarga.
+- **"La voz manda"**: `voz_dur` define la duración de cada escena (`-t voz_dur` + `tpad`).
+- **Persistencia y reanudación**: `.trabajo_<slug>/` guarda `voz_N.mp3`, `imgia_N.png`, `clip_N.mp4`, `escena_N.mp4`. Si algo falla, lo bueno se conserva y se reintenta solo lo que falta. (Útil con Pollinations: la imagen IA se reutiliza y no se vuelve a pedir.)
 
 ---
 
-## 8. Estado de pruebas en producción
+## 8. Estado de pruebas
 
 | Cosa | Estado |
 |---|---|
-| App carga en internet (https://videoagenterafa.up.railway.app) | ✅ |
-| Llaves leídas desde Railway env vars (las 3) | ✅ |
-| ElevenLabs responde (lista 23 voces) | ✅ |
-| Claude API responde (genera ideas y guiones) | ✅ |
-| Generación de video COMPLETA en producción | ⚠️ NO probada después del fix final del Custom Start Command. **Es lo siguiente que toca probar.** |
+| App arranca/renderiza (probado con `streamlit.testing` AppTest) | ✅ local |
+| Voz Piper genera MP3, "la voz manda" | ✅ local |
+| Imágenes Pollinations en vivo + Ken Burns | ✅ local |
+| Los 3 formatos (9:16/16:9/1:1) con subtítulos | ✅ local |
+| **Corrida completa 2 escenas (Piper+Pollinations+KenBurns+subs+montaje)** | ✅ local → MP4 540×960, 7.6s |
+| Config oculta ElevenLabs/fal, solo muestra Claude | ✅ local |
+| **Dockerfile baja Piper+voces en Railway** | ⚠️ **PENDIENTE validar en el deploy** |
+| **Calidad real de voz Piper y de imágenes Pollinations** | ⚠️ **PENDIENTE oír/ver en producción** |
 
 ---
 
-## 9. Filosofía y preferencias del usuario (Rafa, GrupoPTM)
+## 9. Siguiente paso inmediato
 
-- **Sin password**: equipo interno, link cerrado por confianza. No habilitar `APP_PASSWORD` salvo pedido explícito.
-- **Cada cliente pone sus llaves**: las llaves en producción son las del workspace del equipo, pero la idea es que cuando le pasen el link a un cliente, ese cliente edite sus propias llaves desde la pestaña Configuración (no que el equipo gaste sus créditos por cada cliente).
-- **Sencillez sobre todo**: Rafa no es técnico. Los mensajes en la UI deben ser claros, en español, sin jerga. Los errores deben decir qué hacer, no solo qué pasó.
-- **6 escenas como estándar**, costo siempre visible antes de generar (`~$1.26 — 6 escenas` en el botón).
-- **Calidad cinematográfica exigente**: evitar manos en primer plano, textos/letreros en pantalla y rostros en close-up con diálogo (la IA falla ahí). Cierre técnico literal en cada prompt: `"photorealistic, highly detailed, sharp focus, professional cinematography, 35mm film grain, color graded, shallow depth of field"`. Paleta consistente entre las 6 escenas.
-- **Sincronía**: 14–16 palabras por escena, nunca más de 18 → ~6 segundos de voz → calza con clip de 6s.
-- **Si toca salud**: cierre responsable invitando a consultar a un profesional. Nada de promesas médicas ni curas garantizadas.
+1. Hacer **redeploy en Railway** (el push ya está en `main`). Vigilar en **Deploy Logs** que el build descargue Piper + las 4 voces sin error (líneas de `curl` a github/huggingface) y que aparezcan los `[startup] ffmpeg/ffprobe`.
+2. Abrir la app → **Crear video** → tema corto, 3 escenas → el botón debe decir **"gratis"** → Generar.
+3. Validar: que la **voz Piper** suene bien, que las **imágenes Pollinations** sean aceptables, que el formato/subtítulos estén ok. **Descargar el MP4 antes de cerrar** (disco efímero).
+4. Si la voz/imagen no convencen: se puede cambiar la voz Piper por defecto, o reactivar el modo de pago con `TTS_ENGINE`/`IMAGE_ENGINE`.
 
 ---
 
-## 10. Siguiente paso inmediato
+## 10. Filosofía y preferencias del usuario (Rafa, GrupoPTM)
 
-Generar un video de prueba CORTO (3 escenas, ~$0.63) en https://videoagenterafa.up.railway.app para validar el pipeline completo en la nube ahora que el `Custom Start Command` está borrado.
-
-Pasos:
-1. Abrir https://videoagenterafa.up.railway.app
-2. Ir a **Crear video** → escribir cualquier tema corto (ej. "video sobre los beneficios de tomar agua") → cambiar el selector de escenas a **3** → revisar el costo `~$0.63 — 3 escenas` → pulsar Generar
-3. Esperar ~3-5 min (3 escenas × ~60s cada una en Vidu Q3 Turbo, más voz + montaje)
-4. Cuando termine: **descargar el .mp4 inmediatamente con el botón ⬇️** antes de cerrar la pestaña — el disco de Railway es efímero y se pierde al próximo redeploy/restart.
-
-Si la prueba funciona: la app está lista para producción real.
-Si falla: revisar logs en Railway → Deployments → Active deployment → Deploy Logs. Buscar las líneas `[startup]` y mensajes de Claude/fal/ElevenLabs.
+- **Sin password** (equipo interno). No habilitar `APP_PASSWORD` salvo pedido explícito.
+- **Sencillez sobre todo**: Rafa no es técnico. Mensajes claros, en español, sin jerga. Los errores deben decir qué hacer.
+- **Costo siempre visible** antes de generar. Ahora por defecto: **gratis**.
+- **Trabajo progresivo**: un cambio a la vez, probarlo, commit+push individual. En cambios delicados, parar y avisar antes.
+- **Calidad cinematográfica** en los prompts visuales (evitar manos/textos/rostros hablando en primer plano; cierre técnico realista; paleta consistente).
+- **Sincronía**: 14–16 palabras por escena (~6s de voz).
+- **Salud**: cierre responsable, sin promesas médicas.
 
 ---
 
 ## 11. Advertencias para el futuro
 
-- ⚠️ **NUNCA volver a llenar el campo *Custom Start Command*** en Railway → Settings → Deploy. Mantenerlo VACÍO. Si vuelve a aparecer un error de `--server.port=$PORT`, lo primero que hay que revisar es ese campo.
-- ⚠️ **NUNCA cambiar el puerto 8080** del Dockerfile sin actualizar también `EXPOSE` y verificar que Railway enrute al nuevo puerto.
-- ⚠️ **SIEMPRE excluir `claves.txt` y `clientes/`** del contexto Docker (`.dockerignore`) y del repo (`.gitignore`). Las llaves de producción viven en Railway → Variables, no en el repo.
-- ⚠️ **Si el deploy "Active" deja de responder y los logs no muestran errores claros**: revisar (en este orden) (a) Custom Start Command vuelto a pegarse, (b) cambios manuales en variables de entorno, (c) commit reciente que rompa el build.
-- ⚠️ **Disco efímero en Railway**: los videos generados, las imágenes subidas, las carpetas de cliente (`clientes/<slug>/`), las cachés de reanudación (`.trabajo_*/`) **se borran en cada redeploy o restart**. Para datos persistentes hay que mover a un Railway Volume o a S3 (fuera del scope actual; se puede agregar cuando haya volumen real de uso).
-- ⚠️ **Builder forzado a DOCKERFILE**: si en algún momento Railway/Railpack se actualizan y empiezan a ignorar `railway.json`, hay que verificar en Settings → Build que el builder siga siendo "Dockerfile". Si cambia a "Railpack" o "Nixpacks", todo el sistema rompe.
+- ⚠️ **NUNCA llenar el *Custom Start Command*** en Railway (debe estar VACÍO).
+- ⚠️ **El build descarga Piper desde GitHub releases y las voces desde Hugging Face.** Si esas URLs cambian o caen, el build falla. URLs en el `Dockerfile`. (Verificadas vigentes el 2026-05-30.)
+- ⚠️ **Pollinations es un servicio externo gratis best-effort**: puede ir lento o devolver 429/5xx. Hay reintentos con espera (~16s). Si falla mucho, reactivar fal (`IMAGE_ENGINE=fal`) o cambiar de proveedor.
+- ⚠️ **Calidad**: Piper es bueno pero un escalón debajo de ElevenLabs; las imágenes Pollinations son menores que el video real de Vidu (son imagen fija animada). Es el trade-off por ser gratis (decisión del equipo).
+- ⚠️ **NO borrar el código de ElevenLabs ni de fal** ni las funciones `generar_voz()`, `generar_clip()`, etc. Son el respaldo de pago detrás de los interruptores.
+- ⚠️ **Disco efímero en Railway**: lo generado se pierde en cada redeploy/restart. Descargar los MP4 al momento.
+- ⚠️ **Builder forzado a DOCKERFILE** (`railway.json`). Si Railway cambia a Railpack/Nixpacks, rompe.
+- ⚠️ **`piper/` local (~90 MB)** está gitignored y dockerignored. NO subirlo.
 
 ---
 
 ## Apéndice — Cómo retomar en una sesión nueva
 
-### Si abres Claude Code en `C:\Users\Admin\Downloads\mi-videos\`:
+### Claude Code en `C:\Users\Admin\Downloads\mi-videos\`:
 1. Lee este archivo entero.
-2. Lee `CLAUDE.md` (algunas reglas están desactualizadas pero el contexto es útil).
-3. Ejecuta `git log --oneline -10` para ver los últimos commits y confirmar que sigues en `42a3d84` (o más nuevo).
-4. Si quieres probar localmente: `streamlit run app.py` (necesita `claves.txt` con las 3 llaves y `ffmpeg` en PATH).
+2. `git log --oneline -10` (deberías ver `d117541` o más nuevo).
+3. Archivos clave: `app.py`, `make_video.py`, `generar.py`, `clientes.py`, `Dockerfile`.
+4. Probar local: `streamlit run app.py` (necesita `claves.txt` con `ANTHROPIC_API_KEY` y `ffmpeg` en PATH; para voz Piper en local, descargar el binario Windows + una voz en `./piper/`).
 
-### Si abres un chat nuevo de Claude web:
-1. Comparte este HANDOFF.md en el chat.
-2. Comparte también la URL del repo: https://github.com/gabo6999-stack/video-agente
-3. Si la conversación va sobre código, indícale que `app.py`, `make_video.py`, `generar.py` y `clientes.py` son los 4 archivos clave.
-
-### Llaves API necesarias para reproducir el setup
-- **Anthropic** (`sk-ant-api03-...`) — para Claude
-- **ElevenLabs** (`sk_...`) — para voz
-- **fal.ai** (formato `<id>:<secret>`) — para clips de video
-- Local: ponerlas en `claves.txt` (gitignored)
-- Railway: ponerlas en Variables del servicio
+### Llaves necesarias
+- **Anthropic** (`sk-ant-api03-...`) — **obligatoria** (Claude).
+- ElevenLabs / fal — **opcionales**, solo si se reactiva el modo de pago.
+- Local: `claves.txt` (gitignored). Railway: Variables del servicio.
