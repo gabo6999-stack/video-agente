@@ -8,7 +8,12 @@
 QUE HACE:
   Lee un guion (guion.json). Por cada escena:
     1. Genera la narracion con ElevenLabs.
-    2. Genera el clip MUDO con fal.ai (Vidu Q3 Turbo), con hasta 3 reintentos.
+    2. Genera el clip MUDO:
+         - Si la escena trae imagen propia del usuario (imagen_local):
+           se anima LOCALMENTE y GRATIS con FFmpeg (efecto Ken Burns:
+           zoom y paneo lento). No llama a ninguna API.
+         - Si no: se pide a fal.ai (Vidu Q3 Turbo, texto-a-video), con
+           hasta 3 reintentos.
     3. Ajusta el clip a la voz (la voz es el unico audio).
   Al final concatena todo y quema subtitulos.
 
@@ -87,11 +92,12 @@ def _bin(name):
 #  CONFIGURACION  (cambia aqui los valores por defecto si quieres)
 # ==============================================================================
 CONFIG = {
-    # --- fal.ai (clips MUDOS) ---
+    # --- fal.ai (clips MUDOS - solo texto-a-video) ---
     "fal_model":         "fal-ai/vidu/q3/text-to-video/turbo",   # text-to-video
-    "fal_model_i2v":     "fal-ai/vidu/q3/image-to-video",        # image-to-video (sin turbo)
+    # NOTA: imagen-a-video YA NO usa fal. Las imagenes del usuario se animan
+    # localmente y gratis con FFmpeg (Ken Burns). Ver generar_clip_kenburns().
     "fal_resolution":    "540p",  # "360p"|"540p"|"720p"|"1080p" (720p+ cuesta 2.2x)
-    "aspect_ratio":      "9:16",  # "16:9"|"9:16"|"4:3"|"3:4"|"1:1" (solo aplica a t2v)
+    "aspect_ratio":      "9:16",  # "16:9"|"9:16"|"4:3"|"3:4"|"1:1" (t2v y Ken Burns)
 
     # --- Outro con logo ---
     "outro_seconds":     2.5,     # duracion de la pantalla final con logo
@@ -351,99 +357,93 @@ def generar_clip(prompt, segundos, salida_mp4):
 
 
 # ==============================================================================
-#  FAL  ->  IMAGEN A VIDEO (un solo intento)
+#  KEN BURNS LOCAL (FFmpeg)  ->  anima una imagen fija. GRATIS, sin API.
 # ==============================================================================
-def _pedir_clip_i2v_una_vez(image_path, prompt, dur, salida_mp4):
-    """Sube la imagen a fal, llama al modelo image-to-video, descarga MP4."""
-    import fal_client
+#  Reemplaza al antiguo image-to-video de fal.ai Vidu (que costaba $0.07/s).
+#  Toma la imagen que sube el usuario y genera un clip mudo 9:16 con un
+#  movimiento suave de zoom/paneo (efecto Ken Burns), de la duracion que
+#  marque la voz de esa escena ("la voz manda").
+# ==============================================================================
+KENBURNS_FPS = 30
 
+
+def _target_dims():
+    """Dimensiones de salida del clip segun resolution + aspect_ratio del CONFIG.
+    Usa el MISMO lado corto que Vidu (360/540/720/1080) para que las escenas con
+    imagen propia calcen en tamano con las escenas texto-a-video al concatenar."""
+    res = str(CONFIG.get("fal_resolution", "540p")).lower()
+    corto = {"360p": 360, "540p": 540, "720p": 720, "1080p": 1080}.get(res, 540)
+    ar = str(CONFIG.get("aspect_ratio", "9:16"))
+    try:
+        wr, hr = (int(x) for x in ar.split(":"))
+    except Exception:
+        wr, hr = 9, 16
+    if wr <= hr:                       # vertical o cuadrado: el lado corto es el ancho
+        W, H = corto, round(corto * hr / wr)
+    else:                             # horizontal: el lado corto es el alto
+        H, W = corto, round(corto * wr / hr)
+    return W - (W % 2), H - (H % 2)   # ffmpeg/libx264 exige dimensiones pares
+
+
+def _kenburns_vf(idx, frames, W, H):
+    """Filtro -vf de Ken Burns para la escena `idx`.
+
+    - Varia el movimiento segun el indice (no todas las escenas se mueven igual).
+    - Sobre-escala la imagen 2x (lienzo de trabajo) antes del zoompan para que el
+      paneo sea suave, sin saltos de pixel, y la salida quede nitida.
+    - Cubre el encuadre 9:16 (scale+crop) sin deformar la imagen del usuario.
+    """
+    WW, HH = W * 2, H * 2
+    f1 = max(1, frames - 1)
+    cx = "iw/2-(iw/zoom/2)"           # crop centrado en horizontal
+    cy = "ih/2-(ih/zoom/2)"           # crop centrado en vertical
+    presets = [
+        # 0 - zoom in lento al centro
+        (f"1+0.18*on/{f1}",        cx, cy),
+        # 1 - zoom out lento al centro
+        (f"1.18-0.18*on/{f1}",     cx, cy),
+        # 2 - paneo izquierda -> derecha con leve acercamiento
+        (f"1.12+0.06*on/{f1}",     f"(iw-iw/zoom)*on/{f1}",     cy),
+        # 3 - paneo derecha -> izquierda con leve acercamiento
+        (f"1.12+0.06*on/{f1}",     f"(iw-iw/zoom)*(1-on/{f1})", cy),
+        # 4 - paneo arriba -> abajo (zoom fijo)
+        ("1.15",                   cx, f"(ih-ih/zoom)*on/{f1}"),
+        # 5 - paneo abajo -> arriba (zoom fijo)
+        ("1.15",                   cx, f"(ih-ih/zoom)*(1-on/{f1})"),
+    ]
+    z, x, y = presets[(idx - 1) % len(presets)]
+    return (
+        f"scale={WW}:{HH}:force_original_aspect_ratio=increase,"
+        f"crop={WW}:{HH},"
+        f"zoompan=z={z}:x={x}:y={y}:d={frames}:s={W}x{H}:fps={KENBURNS_FPS},"
+        f"setsar=1,format=yuv420p"
+    )
+
+
+def generar_clip_kenburns(image_path, idx, segundos, salida_mp4):
+    """Anima la imagen del usuario con efecto Ken Burns usando FFmpeg local.
+    GRATIS: no llama a ninguna API. Duracion = duracion de la voz (la voz manda)."""
     if not os.path.exists(image_path):
         raise RuntimeError(f"Imagen local no existe: {image_path}")
 
-    log(f"fal i2v: subiendo imagen {os.path.basename(image_path)}...")
-    try:
-        image_url = fal_client.upload_file(image_path)
-    except Exception as e:
-        if _es_error_creditos(str(e)):
-            raise CreditosInsuficientes(f"fal upload sin creditos: {e}") from e
-        raise RuntimeError(f"fal upload fallo: {e}") from e
+    W, H = _target_dims()
+    dur = max(0.5, float(segundos))
+    frames = max(2, round(dur * KENBURNS_FPS))
+    log(f"Ken Burns local (gratis): animando {os.path.basename(image_path)} "
+        f"-> {W}x{H}, {dur:.1f}s...")
 
-    arguments = {
-        "image_url": image_url,
-        "prompt": prompt or "",
-        "duration": int(dur),
-        "resolution": CONFIG["fal_resolution"],
-        "audio": False,
-    }
-    log(f"fal i2v: encolando clip {dur}s {CONFIG['fal_resolution']}...")
-
-    _ult_log = [0.0]
-    _t0 = time.monotonic()
-
-    def _on_update(status):
-        nombre = type(status).__name__
-        ahora = time.monotonic()
-        if ahora - _ult_log[0] < 15 and nombre == "InProgress":
-            return
-        _ult_log[0] = ahora
-        seg = int(ahora - _t0)
-        if nombre == "Queued":
-            pos = getattr(status, "position", "?")
-            log(f"   ... status=Queued (pos={pos}, {seg}s)")
-        else:
-            log(f"   ... status={nombre} ({seg}s)")
-
-    try:
-        result = fal_client.subscribe(
-            CONFIG["fal_model_i2v"],
-            arguments=arguments,
-            with_logs=False,
-            on_queue_update=_on_update,
-            client_timeout=CONFIG["poll_timeout"],
-        )
-    except fal_client.FalClientTimeoutError as e:
-        raise RuntimeError(f"fal i2v: timeout {CONFIG['poll_timeout']}s.") from e
-    except fal_client.FalClientHTTPError as e:
-        if _es_error_creditos(str(e)):
-            raise CreditosInsuficientes(f"fal i2v sin creditos: {str(e)[:300]}") from e
-        raise RuntimeError(f"fal i2v HTTP error: {str(e)[:300]}") from e
-    except Exception as e:
-        if _es_error_creditos(str(e)):
-            raise CreditosInsuficientes(f"fal i2v sin creditos: {str(e)[:300]}") from e
-        raise
-
-    video_url = (result or {}).get("video", {}).get("url")
-    if not video_url:
-        raise RuntimeError(f"fal i2v: respuesta sin video.url: {str(result)[:300]}")
-
-    log("fal i2v: descargando clip...")
-    vid = requests.get(video_url, timeout=120)
-    if vid.status_code != 200:
-        raise RuntimeError(f"fal i2v: descarga fallo {vid.status_code}")
-    with open(salida_mp4, "wb") as f:
-        f.write(vid.content)
-    log("fal i2v: clip listo.")
-
-
-def generar_clip_i2v(image_path, prompt, segundos, salida_mp4):
-    """Image-to-video con reintentos (misma estrategia que t2v)."""
-    dur = min(CONFIG["max_clip_seconds"], max(2, int(segundos) + 1))
-    log(f"fal i2v: pidiendo clip de {dur}s sobre imagen del usuario...")
-
-    max_intentos = CONFIG["fal_max_intentos"]
-    ultimo_error = None
-    for intento in range(1, max_intentos + 1):
-        try:
-            _pedir_clip_i2v_una_vez(image_path, prompt, dur, salida_mp4)
-            return
-        except CreditosInsuficientes:
-            raise
-        except Exception as e:
-            ultimo_error = e
-            if intento < max_intentos:
-                log(f"Intento i2v {intento}/{max_intentos} fallo ({e}). Reintentando...")
-                time.sleep(3)
-    raise RuntimeError(f"fal i2v agoto {max_intentos} intentos. Ultimo error: {ultimo_error}")
+    vf = _kenburns_vf(idx, frames, W, H)
+    cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1", "-i", image_path,
+        "-vf", vf,
+        "-frames:v", str(frames),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-pix_fmt", "yuv420p", "-an",
+        salida_mp4,
+    ]
+    run(cmd)
+    log("Ken Burns local: clip listo.")
 
 
 # ==============================================================================
@@ -513,8 +513,10 @@ def procesar_escena(idx, esc, work):
             os.remove(clip_mp4)
         imagen_local = esc.get("imagen_local")
         if imagen_local and os.path.exists(imagen_local):
-            generar_clip_i2v(imagen_local, esc["visual"], voz_dur, clip_mp4)
+            # Imagen propia del usuario: se anima GRATIS con FFmpeg (Ken Burns).
+            generar_clip_kenburns(imagen_local, idx, voz_dur, clip_mp4)
         else:
+            # Sin imagen: texto-a-video con fal Vidu (igual que siempre).
             generar_clip(esc["visual"], voz_dur, clip_mp4)
 
     componer_escena(clip_mp4, voz_mp3, voz_dur, esc_mp4)

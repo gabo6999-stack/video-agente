@@ -3,8 +3,8 @@
 Documento de continuidad. **Lee este archivo entero antes de tocar nada.**
 Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un chat nuevo de Claude web.
 
-- Última actualización: 2026-05-28
-- Último commit en `main`: **`42a3d84`** (`fix(railway): force DOCKERFILE builder + unset injected STREAMLIT_SERVER_PORT`)
+- Última actualización: 2026-05-30
+- Último commit en `main`: **`feat: animar imágenes con FFmpeg Ken Burns (gratis), reemplaza Vidu image-to-video`** (ver `git log` para el hash exacto)
 - URL pública activa: **https://videoagenterafa.up.railway.app**
 - Repo: **https://github.com/gabo6999-stack/video-agente** (privado, rama `main`)
 
@@ -14,7 +14,7 @@ Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un
 
 - **Qué es la app**: generador automático de videos cortos verticales (Reels/TikTok/Shorts) que orquesta Claude (guion e ideas) + ElevenLabs (voz) + fal.ai Vidu Q3 Turbo (clips) + FFmpeg (montaje y subtítulos). Frontend Streamlit con persistencia multi-cliente.
 - **Estado actual**: DESPLEGADA Y FUNCIONANDO en https://videoagenterafa.up.railway.app. La app carga, las 3 APIs responden, falta solo validar la generación completa en producción.
-- **Lo último que se hizo**: se borró el campo *Custom Start Command* del dashboard de Railway (Settings → Deploy). Ese campo estaba sobrescribiendo el `CMD` del Dockerfile y forzando `--server.port=$PORT` literal en loop infinito. Sin código adicional: el fix fue manual en el dashboard.
+- **Lo último que se hizo (2026-05-30)**: se reemplazó el modo imagen-a-video. Antes las imágenes del usuario se mandaban a fal.ai Vidu (`image-to-video`, $0.07/s) para animarlas. Ahora se animan **localmente y GRATIS con FFmpeg** (efecto Ken Burns: zoom/paneo suave, movimiento variado por escena, salida 9:16 con la duración de la voz). Costo de animación de esas escenas = $0. El modo texto-a-video (fal Vidu Turbo) quedó intacto. Se actualizaron los textos y el cálculo de costo en la app. (Antes de esto: se borró el campo *Custom Start Command* del dashboard de Railway, que sobrescribía el `CMD` del Dockerfile.)
 
 ---
 
@@ -29,7 +29,8 @@ Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un
 - **Modelos por defecto**:
   - **Claude**: `claude-sonnet-4-6` para guiones (a partir de descripción libre) y para ideas + scripts (a partir de keywords). Caching ephemeral sobre el system prompt.
   - **ElevenLabs**: cualquier voice_id de la cuenta. Claude la elige automáticamente según el tono pedido consultando `GET /v1/voices` en vivo. Modelo TTS: `eleven_multilingual_v2`.
-  - **fal.ai Vidu Q3 Turbo 540p**: `fal-ai/vidu/q3/text-to-video/turbo` ($0.035/s, ~$0.21 por clip de 6s). Para imagen-a-video: `fal-ai/vidu/q3/image-to-video` ($0.07/s, sin variante turbo).
+  - **fal.ai Vidu Q3 Turbo 540p**: `fal-ai/vidu/q3/text-to-video/turbo` ($0.035/s, ~$0.21 por clip de 6s). Solo se usa para **texto-a-video** (escenas sin imagen propia).
+  - **Imagen-a-video (animar imágenes del usuario)**: ⚠️ YA NO usa fal.ai. Ahora se hace **localmente y GRATIS con FFmpeg** (efecto Ken Burns: zoom/paneo suave sobre la imagen fija). Ver `generar_clip_kenburns()` en `make_video.py`. Costo de animación = **$0** (solo se paga la voz de ElevenLabs).
 - **Deploy**: Railway con **Dockerfile** propio (NO Nixpacks, NO Railpack). Puerto fijo **8080**, sin password (equipo interno, link cerrado).
 
 ---
@@ -41,7 +42,7 @@ Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un
 | Archivo | Función |
 |---|---|
 | `app.py` | Frontend Streamlit. Sidebar con 3 grupos, login gate opcional vía `APP_PASSWORD` env, las 6 páginas, descarga de videos generados, diagnóstico de arranque (`[startup]` ffmpeg/ffprobe). Orquesta llamadas a `generar.py` y `make_video.py`. |
-| `make_video.py` | Pipeline core. Lee `guion.json`, por escena: genera voz (ElevenLabs), genera clip mudo (fal Vidu Q3 t2v o i2v si hay imagen del usuario), monta con FFmpeg respetando "la voz manda" (`-t voz_dur` + `tpad`). Persistencia en `.trabajo_<output>/` con reanudación y 3 reintentos por clip. Outro opcional con logo. Quema subtítulos elegantes. `media_duration()` tiene fallback `ffmpeg -i` si `ffprobe` no está. |
+| `make_video.py` | Pipeline core. Lee `guion.json`, por escena: genera voz (ElevenLabs), genera clip mudo (si hay imagen propia del usuario → **Ken Burns local con FFmpeg, gratis**, vía `generar_clip_kenburns()`; si no → fal Vidu Q3 texto-a-video), monta con FFmpeg respetando "la voz manda" (`-t voz_dur` + `tpad`). Persistencia en `.trabajo_<output>/` con reanudación y 3 reintentos por clip (los reintentos aplican a t2v; el Ken Burns es local y no reintenta). Outro opcional con logo. Quema subtítulos elegantes. `media_duration()` tiene fallback `ffmpeg -i` si `ffprobe` no está. |
 | `generar.py` | "Cerebro" Claude API. Funciones públicas: `cargar_llaves()`, `obtener_voces_elevenlabs()`, `pedir_guion_a_claude()` (descripción libre → guion), `proponer_ideas()` y `generar_script_para_idea()` (desde keywords), `script_a_brief()`, `calcular_costo()`, `calcular_costo_mixto()`. Defaults estándar: 6 escenas × 6s × $0.035/s = **$1.26/video**. |
 | `clientes.py` | Persistencia por cliente. `ruta_cliente(name, crear=True/False)` evita crear carpetas fantasma desde lecturas. `leer_keywords_excel()` tolerante a nombres ("palabra clave"/"keyword"/"kw" y "volumen"/"search volume"/etc). `listar_clientes()` filtra solo carpetas con `meta.json`. Guardar/leer keywords, ideas, scripts. |
 | `Dockerfile` | `FROM python:3.13-slim`, `apt-get install ffmpeg` (incluye ffprobe), `COPY . .`, `CMD ["sh","-c","unset STREAMLIT_SERVER_* && exec streamlit run app.py --server.port=8080 ..."]`. `EXPOSE 8080`. |
@@ -116,7 +117,7 @@ Autenticación en este proyecto: `gh` CLI 2.93.0 instalado en `C:\Program Files\
 Todas probadas en local. Estado en nube indicado entre paréntesis.
 
 - **Modo texto-a-video** (default): describes el tema, Claude redacta el guion y los prompts visuales, fal Vidu Q3 Turbo genera los clips.
-- **Modo imagen-a-video** (mixto): subes hasta N imágenes propias en la sección opcional; las primeras N escenas usan `fal-ai/vidu/q3/image-to-video` (anima TUS imágenes); las restantes usan texto-a-video. Costo se recalcula en vivo.
+- **Modo "usar mis imágenes"** (mixto): subes hasta N imágenes propias en la sección opcional; las primeras N escenas se animan **GRATIS en local con FFmpeg Ken Burns** (zoom/paneo suave, movimiento variado por escena, salida 9:16 que calza con el resto); las restantes usan texto-a-video. **Costo de animación de esas escenas = $0** (solo se paga la voz). El costo se recalcula en vivo y el botón muestra "gratis" cuando todas las escenas usan tus fotos.
 - **Logo outro opcional**: subes un PNG (con transparencia ok), se agrega como pantalla final de 2.5s sobre fondo negro. No cuesta API.
 - **Toggle de subtítulos**: ON por defecto, estilo Reels (Arial 14, bold, borde 1.4px, margen V=60, máximo 2 líneas con wrap balanceado por palabras).
 - **Defaults estándar**: 6 escenas × 6s × $0.035/s = **$1.26/video**. Si pides más escenas, calcula y pide confirmación.

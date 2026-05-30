@@ -82,20 +82,21 @@ def cargar_llaves():
 # ==============================================================================
 #  COSTO
 # ==============================================================================
-PRECIO_X_SEG_I2V = 0.07  # imagen-a-video Vidu Q3 (no turbo)
-
-
 def calcular_costo(n_escenas):
     """Costo cuando TODAS las escenas son texto-a-video Turbo."""
     return n_escenas * SEG_X_ESCENA * PRECIO_X_SEG
 
 
 def calcular_costo_mixto(n_escenas, n_imagenes):
-    """Costo cuando las primeras n_imagenes escenas usan imagen-a-video
-    (i2v, $0.07/s) y el resto usan texto-a-video Turbo ($0.035/s)."""
-    n_i2v = min(n_imagenes, n_escenas)
-    n_t2v = max(0, n_escenas - n_i2v)
-    return n_t2v * SEG_X_ESCENA * PRECIO_X_SEG + n_i2v * SEG_X_ESCENA * PRECIO_X_SEG_I2V
+    """Costo cuando las primeras n_imagenes escenas usan imagenes propias del
+    usuario y el resto usan texto-a-video Turbo ($0.035/s).
+
+    Las escenas con imagen propia ahora se animan GRATIS en local con FFmpeg
+    (efecto Ken Burns): cuestan $0 de animacion. Solo las escenas texto-a-video
+    pagan a fal. (La voz de ElevenLabs se cobra aparte, igual que siempre.)"""
+    n_img = min(n_imagenes, n_escenas)
+    n_t2v = max(0, n_escenas - n_img)
+    return n_t2v * SEG_X_ESCENA * PRECIO_X_SEG  # imagenes propias = 0
 
 
 # ==============================================================================
@@ -154,14 +155,13 @@ REGLAS DE PROMPT VISUAL (campo "visual") - CINEMATOGRAFICO Y DETALLADO:
   6. Aspect ratio explicito al cierre: "vertical 9:16" o "horizontal 16:9".
 
 MODO MIXTO IMAGEN+TEXTO (cuando el usuario sube K imagenes propias):
-- Las primeras K escenas usan esas imagenes como punto de partida (modo image-to-video de Vidu).
-- Para esas K escenas, el campo "visual" DEBE describir SOLO MOVIMIENTO / animacion: camara
-  (slow dolly-in, slow pan, gentle zoom), atmosfera (warm light shift, soft particle drift),
-  transiciones suaves. NO describas el contenido de la escena (la imagen del usuario ya lo muestra).
-  Ejemplo correcto: "Slow dolly-in with warm light shift and subtle dust particles drifting,
-  cinematic motion, photorealistic, vertical 9:16"
+- Las primeras K escenas usan esas imagenes del usuario. Esas imagenes se animan LOCALMENTE
+  con FFmpeg (efecto Ken Burns: zoom y paneo suave); NO se generan con IA. Por eso, para esas
+  K escenas, el campo "visual" NO se usa para generar nada: pon solo una nota breve de
+  movimiento (ej "Gentle Ken Burns zoom, vertical 9:16"). No te esfuerces en describir el
+  contenido: la imagen del usuario ya lo muestra y el movimiento lo aplica FFmpeg.
 - Las escenas K+1..N (sin imagen) siguen las reglas normales (sujeto + accion + setting + ...).
-- La narracion sigue las MISMAS reglas (14-16 palabras) para todas las escenas.
+- La narracion sigue las MISMAS reglas (14-16 palabras) para TODAS las escenas (con o sin imagen).
 
 COHERENCIA VISUAL ENTRE LAS 6 ESCENAS:
 - Decide al principio UNA direccion de paleta y estilo (ej "warm earthy tones, soft natural light"
@@ -226,9 +226,9 @@ def pedir_guion_a_claude(anthro_key, descripcion, n_escenas, voces,
     if n_imagenes_usuario > 0:
         nota_imgs = (
             f"\n\nIMAGENES DEL USUARIO: {n_imagenes_usuario} "
-            f"(escenas 1..{min(n_imagenes_usuario, n_escenas)} = image-to-video con esas imagenes; "
-            f"escenas restantes = text-to-video). "
-            "Para las escenas con imagen, escribe SOLO el prompt de MOVIMIENTO."
+            f"(escenas 1..{min(n_imagenes_usuario, n_escenas)} = imagen propia animada en local "
+            f"con FFmpeg Ken Burns; escenas restantes = text-to-video con IA). "
+            "Para las escenas con imagen, el campo visual no se usa: pon solo una nota breve de movimiento."
         )
     else:
         nota_imgs = "\n\nIMAGENES DEL USUARIO: 0 (todas las escenas son text-to-video)."

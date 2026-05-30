@@ -201,7 +201,8 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
             voces = generar.obtener_voces_elevenlabs(eleven_key)
             _append(f"  {len(voces)} voces en la cuenta.")
             if n_imgs_efectivas:
-                _append(f"  {n_imgs_efectivas} imagen(es) propias en escenas 1..{n_imgs_efectivas} (modo i2v).")
+                _append(f"  {n_imgs_efectivas} imagen(es) propias en escenas 1..{n_imgs_efectivas} "
+                        f"(se animan GRATIS con FFmpeg Ken Burns, sin costo de animacion).")
             if ruta_logo:
                 _append(f"  Outro con logo activado ({CONFIG_OUTRO_S}s).")
 
@@ -327,15 +328,18 @@ def pagina_crear():
         expanded=uploads_abierto,
     ):
         st.caption(
-            "Si subes imagenes, Vidu las ANIMA (en vez de inventarlas) en las primeras N escenas. "
-            "El imagen-a-video cuesta $0.07/s (vs $0.035/s del texto-a-video). "
+            "Si subes tus propias imagenes, el sistema las ANIMA GRATIS aqui mismo: "
+            "le da un movimiento suave de zoom y paneo (efecto Ken Burns) a cada una, "
+            "sin costo de animacion (solo pagas la voz). Una imagen por escena, en orden. "
+            "Las escenas para las que no subas imagen se generan con IA. "
             "El logo se agrega como pantalla de cierre (2.5s, fondo negro, sin costo)."
         )
         imgs = st.file_uploader(
             "Imagenes (orden = orden de escenas)",
             type=["png", "jpg", "jpeg", "webp"],
             accept_multiple_files=True,
-            help="Sube hasta el numero de escenas. Si subes menos, las restantes se generan con IA.",
+            help="Sube hasta el numero de escenas. Cada imagen se anima gratis. "
+                 "Si subes menos, las restantes se generan con IA.",
             key="up_imgs_crear",
         )
         logo = st.file_uploader(
@@ -348,9 +352,13 @@ def pagina_crear():
 
     n_imgs_subidas = len(imgs) if imgs else 0
     n_imgs_efectivas = min(n_imgs_subidas, n_escenas)
+    n_ia = n_escenas - n_imgs_efectivas
     if n_imgs_efectivas > 0:
         costo = generar.calcular_costo_mixto(n_escenas, n_imgs_efectivas)
-        modo_etiqueta = f"{n_imgs_efectivas} i2v + {n_escenas - n_imgs_efectivas} IA"
+        if n_ia > 0:
+            modo_etiqueta = f"{n_imgs_efectivas} con tus fotos (gratis) + {n_ia} con IA"
+        else:
+            modo_etiqueta = f"{n_imgs_efectivas} con tus fotos (gratis)"
     else:
         costo = generar.calcular_costo(n_escenas)
         modo_etiqueta = f"{n_escenas} escenas"
@@ -364,13 +372,24 @@ def pagina_crear():
             f"Subiste {n_imgs_subidas} imagenes pero solo hay {n_escenas} escenas. "
             f"Solo se usaran las primeras {n_escenas}."
         )
+    if n_imgs_efectivas > 0:
+        st.success(
+            f"Tus {n_imgs_efectivas} imagen(es) se animan **gratis** (efecto Ken Burns, "
+            f"sin costo de animacion)."
+            + (f" Las otras {n_ia} escena(s) se generan con IA." if n_ia > 0 else "")
+        )
     if aviso_extra:
         st.warning(
             f"Costo arriba del default ({modo_etiqueta}): **${costo:.2f}** "
             f"vs ${generar.COSTO_DEFAULT:.2f} estandar."
         )
 
-    btn_label = f"🎬  Generar video  ·  ~${costo:.2f} - {modo_etiqueta}"
+    # El costo mostrado es solo el de fal (animacion IA). Las imagenes propias
+    # no suman; la voz de ElevenLabs se cobra aparte (saldo en la barra lateral).
+    if costo <= 0.0001:
+        btn_label = "🎬  Generar video  ·  sin costo de animacion (solo la voz)"
+    else:
+        btn_label = f"🎬  Generar video  ·  ~${costo:.2f} - {modo_etiqueta}"
     if logo is not None:
         btn_label += "  + outro"
 
