@@ -1,0 +1,12 @@
+# Tema nativo de Streamlit con la identidad de marca PyS (video/marketing).
+# Esto fija la base oscura y el color de acento turquesa para los componentes
+# que Streamlit pinta por su cuenta (toggles, sliders, checkboxes, foco de
+# inputs), que el CSS no logra recolorear del todo. El CSS de app.py se encarga
+# del resto (fondo con resplandores, glassmorphism, marca, hero, botones).
+[theme]
+base = "dark"
+primaryColor = "#00E5C4"
+backgroundColor = "#0D0F10"
+secondaryBackgroundColor = "#13181B"
+textColor = "#F5F5F2"
+font = "sans serif"

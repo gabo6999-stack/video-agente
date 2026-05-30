@@ -61,6 +61,245 @@ st.set_page_config(page_title="Video Auto", page_icon="🎬", layout="wide")
 
 
 # ==============================================================================
+#  IDENTIDAD VISUAL "PyS" (Pyptidos y Suplementos)  -  SOLO ESTILO, sin logica
+# ==============================================================================
+#  Tematica de adornos: VIDEO / MARKETING (camara, claqueta, play), NO peptidos.
+#  Paleta: fondo casi-negro con resplandores turquesa/fucsia, acento #00E5C4,
+#  secundario #F7007A, tipografia Optima (titulos) + Inter (cuerpo), tarjetas
+#  glassmorphism y botones tipo pildora. Inyectado via CSS para no tocar el flujo.
+# ==============================================================================
+_PYS_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root{
+  --pys-bg1:#0D0F10; --pys-bg2:#101417; --pys-bg3:#111111;
+  --pys-accent:#00E5C4; --pys-accent2:#F7007A; --pys-mint:#8EF3E4;
+  --pys-text:#F5F5F2; --pys-text2:#BFC4C2;
+  --pys-grad:linear-gradient(135deg,#00E5C4 0%,#8EF3E4 44%,#F7007A 100%);
+  --pys-glass:rgba(255,255,255,.05);
+  --pys-border:rgba(255,255,255,.14);
+}
+
+/* ---------- Fondo: degradado oscuro + resplandores en esquinas ---------- */
+.stApp{
+  background:
+    radial-gradient(1100px 760px at 10% -8%, rgba(0,229,196,.12), transparent 58%),
+    radial-gradient(1000px 720px at 102% 108%, rgba(247,0,122,.12), transparent 58%),
+    linear-gradient(160deg,#0D0F10 0%,#101417 52%,#111111 100%);
+  background-attachment:fixed;
+  color:var(--pys-text);
+}
+[data-testid="stHeader"], [data-testid="stToolbar"]{ background:transparent !important; }
+[data-testid="stAppViewContainer"] .block-container{ max-width:1180px; padding-top:2.2rem; }
+
+/* ---------- Tipografia ---------- */
+html, body, .stApp, p, span, div, label, input, textarea, button, select, .stMarkdown{
+  font-family:'Inter','Helvetica Neue',Arial,sans-serif;
+}
+h1,h2,h3,h4,
+.stMarkdown h1,.stMarkdown h2,.stMarkdown h3,
+[data-testid="stHeading"]{
+  font-family:'Optima','Optima LT Std','Candara','Segoe UI',Arial,sans-serif !important;
+  font-weight:400 !important;
+  letter-spacing:-0.04em !important;
+  color:var(--pys-text) !important;
+}
+h1, .stMarkdown h1{ font-size:2.5rem !important; }
+h2, .stMarkdown h2{ font-size:1.7rem !important; }
+[data-testid="stCaptionContainer"], .stCaption, small{ color:var(--pys-text2) !important; }
+a{ color:var(--pys-accent) !important; }
+
+/* ---------- Botones tipo pildora ---------- */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button,
+.stLinkButton > a{
+  border-radius:999px !important;
+  border:1px solid var(--pys-border) !important;
+  background:var(--pys-glass) !important;
+  color:var(--pys-text) !important;
+  font-weight:600 !important;
+  letter-spacing:.015em;
+  padding:.55rem 1.25rem !important;
+  transition:transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
+  -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+}
+.stButton > button:hover, .stDownloadButton > button:hover,
+.stFormSubmitButton > button:hover, .stLinkButton > a:hover{
+  transform:translateY(-1px);
+  border-color:var(--pys-accent) !important;
+  color:var(--pys-text) !important;
+}
+/* Boton principal (primary): turquesa, texto oscuro, mayusculas */
+.stButton button[kind="primary"], .stFormSubmitButton button[kind="primary"],
+.stDownloadButton button[kind="primary"],
+[data-testid="stBaseButton-primary"]{
+  background:var(--pys-accent) !important;
+  color:#111 !important;
+  border:none !important;
+  text-transform:uppercase;
+  font-weight:800 !important;
+  letter-spacing:.04em;
+  box-shadow:0 8px 24px rgba(0,229,196,.25) !important;
+}
+.stButton button[kind="primary"]:hover, .stFormSubmitButton button[kind="primary"]:hover,
+.stDownloadButton button[kind="primary"]:hover,
+[data-testid="stBaseButton-primary"]:hover{
+  background:var(--pys-grad) !important;
+  color:#111 !important;
+  transform:translateY(-2px);
+  box-shadow:0 12px 32px rgba(247,0,122,.32) !important;
+}
+
+/* ---------- Inputs / selects / textarea: vidrio ---------- */
+[data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] > div,
+.stTextInput > div > div, .stNumberInput > div > div{
+  background:var(--pys-glass) !important;
+  border-radius:14px !important;
+  border:1px solid var(--pys-border) !important;
+}
+.stTextInput input, .stNumberInput input, .stTextArea textarea,
+[data-baseweb="select"] *{ color:var(--pys-text) !important; }
+input::placeholder, textarea::placeholder{ color:rgba(191,196,194,.6) !important; }
+
+/* ---------- Tarjetas / contenedores / expanders: glassmorphism ---------- */
+[data-testid="stExpander"],
+[data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stForm"],
+[data-testid="stStatusWidget"], [data-testid="stStatus"]{
+  background:var(--pys-glass) !important;
+  border:1px solid var(--pys-border) !important;
+  border-radius:22px !important;
+  -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+  box-shadow:0 12px 34px rgba(0,0,0,.38) !important;
+}
+[data-testid="stExpander"] summary{ font-weight:600; color:var(--pys-text) !important; }
+
+/* ---------- Mensajes (exito/info/aviso/error) ---------- */
+[data-testid="stAlert"], [data-testid="stNotification"]{
+  border-radius:16px !important;
+  border:1px solid var(--pys-border) !important;
+  border-left:3px solid var(--pys-accent) !important;
+  background:var(--pys-glass) !important;
+  -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+  color:var(--pys-text) !important;
+}
+
+/* ---------- Bloques de codigo, dataframe, video ---------- */
+[data-testid="stCodeBlock"] pre, pre{
+  border-radius:14px !important; border:1px solid var(--pys-border) !important;
+  background:rgba(0,0,0,.35) !important;
+}
+[data-testid="stDataFrame"]{ border-radius:14px !important; overflow:hidden; border:1px solid var(--pys-border); }
+[data-testid="stVideo"] video, video{ border-radius:18px !important; }
+[data-testid="stFileUploaderDropzone"]{
+  background:var(--pys-glass) !important; border:1px dashed var(--pys-border) !important;
+  border-radius:16px !important;
+}
+
+/* ---------- Acentos en controles (slider / toggle) ---------- */
+[data-baseweb="slider"] [role="slider"]{ background:var(--pys-accent) !important; }
+[data-testid="stSlider"] [data-baseweb="slider"] div[style*="background"]{ background:var(--pys-accent) !important; }
+
+/* ---------- Sidebar ---------- */
+[data-testid="stSidebar"]{
+  background:linear-gradient(185deg, rgba(13,15,16,.94), rgba(17,17,17,.96)) !important;
+  border-right:1px solid var(--pys-border);
+  -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+}
+[data-testid="stSidebar"] .stButton > button{
+  text-align:left; justify-content:flex-start;
+  background:rgba(255,255,255,.03) !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover{
+  border-color:var(--pys-accent) !important;
+  background:rgba(0,229,196,.08) !important;
+}
+
+/* ---------- Marca y hero (video / marketing) ---------- */
+.pys-brand{ display:flex; align-items:center; gap:11px; margin:2px 0 6px; }
+.pys-brand .pys-logo{
+  width:38px; height:38px; border-radius:12px; flex:0 0 auto;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--pys-grad); box-shadow:0 6px 18px rgba(0,229,196,.30);
+}
+.pys-brand .pys-name{
+  font-family:'Optima','Candara','Segoe UI',Arial,sans-serif;
+  font-size:1.32rem; letter-spacing:-0.04em; color:var(--pys-text); line-height:1.05;
+}
+.pys-brand .pys-sub{
+  font-size:.66rem; letter-spacing:.22em; text-transform:uppercase; color:var(--pys-text2);
+}
+.pys-hero{
+  display:flex; align-items:center; gap:14px; margin:0 0 1.1rem;
+  padding:14px 20px; border-radius:20px;
+  background:var(--pys-glass); border:1px solid var(--pys-border);
+  -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+}
+.pys-hero .pys-hero-ic{
+  width:42px; height:42px; flex:0 0 auto; border-radius:13px;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(0,229,196,.12); border:1px solid var(--pys-border);
+}
+.pys-hero .pys-hero-t{
+  font-family:'Optima','Candara','Segoe UI',Arial,sans-serif;
+  font-size:1.12rem; letter-spacing:-0.03em; color:var(--pys-text); line-height:1.1;
+}
+.pys-hero .pys-hero-s{ font-size:.78rem; color:var(--pys-text2); }
+.pys-grad-text{
+  background:var(--pys-grad); -webkit-background-clip:text; background-clip:text;
+  -webkit-text-fill-color:transparent; color:transparent;
+}
+
+/* ---------- Responsive (celular) ---------- */
+@media (max-width:640px){
+  [data-testid="stAppViewContainer"] .block-container{ padding:1.4rem .9rem !important; }
+  h1, .stMarkdown h1{ font-size:1.95rem !important; }
+  h2, .stMarkdown h2{ font-size:1.4rem !important; }
+  .stButton > button, .stDownloadButton > button{ width:100%; }
+  .pys-hero{ flex-direction:row; padding:12px 14px; }
+}
+</style>
+"""
+
+# Iconos SVG (tematica video/marketing) en color de marca, para marca y hero.
+_PYS_LOGO_SVG = (
+    "<svg width='20' height='20' viewBox='0 0 24 24' fill='none' "
+    "xmlns='http://www.w3.org/2000/svg'>"
+    "<path d='M3 8.5C3 7.4 3.9 6.5 5 6.5H13C14.1 6.5 15 7.4 15 8.5V15.5C15 16.6 14.1 17.5 13 17.5H5C3.9 17.5 3 16.6 3 15.5V8.5Z' "
+    "fill='#0D0F10'/>"
+    "<path d='M15 10.2L20 7.3V16.7L15 13.8V10.2Z' fill='#0D0F10'/></svg>"
+)
+_PYS_HERO_SVG = (
+    "<svg width='22' height='22' viewBox='0 0 24 24' fill='none' "
+    "xmlns='http://www.w3.org/2000/svg'>"
+    "<rect x='3' y='5' width='18' height='14' rx='3' stroke='#00E5C4' stroke-width='1.6'/>"
+    "<path d='M10 9.5L15 12L10 14.5V9.5Z' fill='#00E5C4'/>"
+    "<path d='M3 9H21' stroke='#00E5C4' stroke-width='1.2' opacity='.5'/></svg>"
+)
+
+
+def _inyectar_estilos_pys():
+    """Inyecta el CSS de identidad PyS una vez por render. Solo estilo."""
+    st.markdown(_PYS_CSS, unsafe_allow_html=True)
+
+
+def _hero_pys(titulo, subtitulo):
+    """Banner superior con la marca (tematica video). Decorativo, sin logica."""
+    st.markdown(
+        "<div class='pys-hero'>"
+        f"<div class='pys-hero-ic'>{_PYS_HERO_SVG}</div>"
+        "<div>"
+        f"<div class='pys-hero-t'>{titulo}</div>"
+        f"<div class='pys-hero-s'>{subtitulo}</div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+_inyectar_estilos_pys()
+
+
+# ==============================================================================
 #  LOGIN GATE (solo activo si APP_PASSWORD esta en env, p.ej. en Railway)
 # ==============================================================================
 def _check_password():
@@ -894,25 +1133,46 @@ PAGINAS = {
     "Configuracion (llaves)":    pagina_config,
 }
 
+# Colores de marca PyS para los 3 grupos (distintos entre si, dentro de la paleta)
 GROUPS = [
-    ("PRODUCIR",          "#1d4ed8",  ["Crear video", "Usar mis imagenes"]),
-    ("IDEAS Y CLIENTES",  "#15803d",  ["Ideas desde keywords", "Repositorio / calendario"]),
-    ("SISTEMA",           "#b45309",  ["Biblioteca de videos", "Configuracion (llaves)"]),
+    ("PRODUCIR",          "#00E5C4",  ["Crear video", "Usar mis imagenes"]),
+    ("IDEAS Y CLIENTES",  "#8EF3E4",  ["Ideas desde keywords", "Repositorio / calendario"]),
+    ("SISTEMA",           "#F7007A",  ["Biblioteca de videos", "Configuracion (llaves)"]),
 ]
+
+# Iconos (tematica video/marketing) para cada grupo del sidebar
+_GROUP_ICON = {
+    "PRODUCIR":          "🎬",
+    "IDEAS Y CLIENTES":  "💡",
+    "SISTEMA":           "⚙️",
+}
 
 
 def _pill(text, color):
+    """Chip de seccion estilo PyS: vidrio con borde de acento de color."""
+    icono = _GROUP_ICON.get(text, "•")
     st.sidebar.markdown(
-        f"<div style='background:{color}; color:white; padding:6px 12px; "
-        "border-radius:6px; font-weight:600; margin:14px 0 6px 0; "
-        "font-size:0.8em; letter-spacing:0.6px;'>"
-        f"{text}</div>",
+        "<div style='display:flex; align-items:center; gap:8px; "
+        "margin:18px 0 8px 0; padding:7px 12px; border-radius:12px; "
+        "background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); "
+        f"border-left:3px solid {color}; "
+        "font-family:Inter,sans-serif; font-weight:600; font-size:0.72rem; "
+        "letter-spacing:0.14em; color:#F5F5F2;'>"
+        f"<span style='font-size:0.95rem'>{icono}</span>{text}</div>",
         unsafe_allow_html=True,
     )
 
 
 def render_sidebar():
-    st.sidebar.markdown("## 🎬 Video Auto")
+    st.sidebar.markdown(
+        "<div class='pys-brand'>"
+        f"<div class='pys-logo'>{_PYS_LOGO_SVG}</div>"
+        "<div>"
+        "<div class='pys-name'>Video <span class='pys-grad-text'>Auto</span></div>"
+        "<div class='pys-sub'>Estudio de contenido · PyS</div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
 
     # Saldo ElevenLabs: SOLO se muestra si el equipo reactivo la voz de pago
     # (TTS_ENGINE=elevenlabs). Por defecto la voz es Piper (gratis) y no aplica.
@@ -962,7 +1222,18 @@ def render_sidebar():
 # ==============================================================================
 render_sidebar()
 
+# Subtitulo del hero por pagina (tematica video / marketing)
+_HERO_SUB = {
+    "Crear video":              "Produce tu video con voz e imagenes, listo para publicar",
+    "Ideas desde keywords":     "Convierte palabras clave en ideas y guiones de contenido",
+    "Repositorio / calendario": "Tus ideas y guiones, organizados por cliente",
+    "Biblioteca de videos":     "Tus videos producidos, listos para descargar",
+    "Configuracion (llaves)":   "Ajustes de la herramienta de produccion",
+}
+
 _pag = st.session_state.get("_pagina", "Crear video")
+_hero_pys("Video Auto", _HERO_SUB.get(_pag, "Estudio de produccion de video"))
+
 if _pag in PAGINAS:
     PAGINAS[_pag]()
 else:
