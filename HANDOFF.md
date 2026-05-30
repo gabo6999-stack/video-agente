@@ -4,7 +4,7 @@ Documento de continuidad. **Lee este archivo entero antes de tocar nada.**
 Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un chat nuevo de Claude web.
 
 - Última actualización: 2026-05-30
-- Último commit en `main`: **`d117541`** (`feat(config): ocultar llaves de ElevenLabs y fal del setting`)
+- Último commit en `main`: **`b661328`** (`estilo: nueva interfaz con identidad de marca PyS (temática video/marketing), responsive`)
 - URL pública activa: **https://videoagenterafa.up.railway.app**
 - Repo: **https://github.com/gabo6999-stack/video-agente** (privado, rama `main`)
 
@@ -18,6 +18,7 @@ Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un
   - **Imágenes** (escenas sin foto del usuario) → **Pollinations.ai** (gratis, sin llave) + animación Ken Burns. fal.ai Vidu queda como respaldo detrás de un interruptor.
   - **Animación de imágenes propias** → **FFmpeg Ken Burns** (local, gratis, ya estaba).
   - **Único costo que queda**: la **API de Claude (Anthropic)**, que escribe los guiones (unos centavos por video).
+- **REDISEÑO VISUAL (2026-05-30): la interfaz ahora usa la identidad de marca "Péptidos y Suplementos (PyS)"** — fondo oscuro casi-negro con resplandores turquesa/fucsia, acento turquesa `#00E5C4` + secundario fucsia `#F7007A`, tipografía Optima (títulos) + Inter (cuerpo), tarjetas glassmorphism, botones tipo píldora. ⚠️ Los **adornos/íconos son de VIDEO/MARKETING** (cámara, claqueta, play), NO de péptidos/salud (es una herramienta de producción de video, no la tienda). Solo cambió la apariencia; la funcionalidad y el flujo son idénticos.
 - **Estado**: DESPLEGADA en Railway. Todos los cambios nuevos están **probados en local** (incluida una corrida completa de 2 escenas: voz Piper + imágenes Pollinations + Ken Burns + subtítulos + montaje → MP4 9:16 correcto). **Falta validar en el deploy de Railway** (sobre todo: que el Dockerfile descargue bien Piper y que la calidad de voz/imágenes convenza).
 
 ---
@@ -37,11 +38,12 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 
 ## 3. Arquitectura y stack
 
-- **Frontend**: Streamlit (1.57.0). Sidebar con 3 grupos (píldoras de color):
-  - 🔵 **PRODUCIR** — Crear video, Usar mis imágenes
-  - 🟢 **IDEAS Y CLIENTES** — Ideas desde keywords, Repositorio / calendario
-  - 🟠 **SISTEMA** — Biblioteca de videos, Configuración (llaves)
+- **Frontend**: Streamlit (1.57.0) con **identidad visual PyS** (tema oscuro + acento turquesa, glassmorphism, tipografía Optima/Inter, botones píldora; ver `_PYS_CSS` en `app.py` y `.streamlit/config.toml`). Sidebar con marca (logo SVG cámara/play), un **hero** por página con íconos de video, y 3 grupos (píldoras de color de marca: turquesa / menta / fucsia):
+  - 🎬 **PRODUCIR** (turquesa `#00E5C4`) — Crear video, Usar mis imágenes
+  - 💡 **IDEAS Y CLIENTES** (menta `#8EF3E4`) — Ideas desde keywords, Repositorio / calendario
+  - ⚙️ **SISTEMA** (fucsia `#F7007A`) — Biblioteca de videos, Configuración (llaves)
   - Cabecera del sidebar: si la voz es Piper (default) muestra "Voz e imágenes: gratis ✓"; solo muestra saldo de ElevenLabs si `TTS_ENGINE=elevenlabs`.
+  - **Estilo aplicado vía CSS inyectado** (`st.markdown(unsafe_allow_html=True)`) + tema nativo en `.streamlit/config.toml`. Responsive (móvil/escritorio). Componente que Streamlit no recolorea bien por CSS: el toggle/slider — resuelto con `primaryColor` en el config.toml.
 - **Backend**: Python 3.13. SDKs: `anthropic`, `fal-client` (solo si se reactiva fal). ElevenLabs y Pollinations vía REST (`requests`). FFmpeg + ffprobe vía subprocess. **Piper** vía subprocess (binario en `/opt/piper`).
 - **Motores por defecto**:
   - **Claude**: `claude-sonnet-4-6` para guiones e ideas. Caching ephemeral sobre el system prompt. **(de pago, único costo)**
@@ -61,7 +63,8 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 
 | Archivo | Función |
 |---|---|
-| `app.py` | Frontend Streamlit. "Crear video" tiene: nº escenas, **selector de formato** (9:16 / 16:9 / 1:1), toggle subtítulos, **selector de voz Piper** (femeninas/masculinas), expander para subir imágenes propias + logo. Cálculo de costo que muestra **"gratis"** por defecto. Orquesta `generar.py` y `make_video.py`. Página Configuración solo muestra la llave de Claude (las de ElevenLabs/fal están ocultas pero su código sigue). |
+| `app.py` | Frontend Streamlit. "Crear video" tiene: nº escenas, **selector de formato** (9:16 / 16:9 / 1:1), toggle subtítulos, **selector de voz Piper** (femeninas/masculinas), expander para subir imágenes propias + logo. Cálculo de costo que muestra **"gratis"** por defecto. Orquesta `generar.py` y `make_video.py`. Página Configuración solo muestra la llave de Claude. **Estilo PyS**: constantes `_PYS_CSS` (CSS de marca), `_PYS_LOGO_SVG`/`_PYS_HERO_SVG` (íconos video), `_inyectar_estilos_pys()`, `_hero_pys()`, `_pill()` (chips de sección). **Toda la lógica/flujo intactos; solo apariencia.** |
+| `.streamlit/config.toml` | Tema nativo de Streamlit con la marca PyS: `base="dark"`, `primaryColor="#00E5C4"` (turquesa), fondos oscuros. Recolorea los componentes que el CSS no alcanza (toggle, slider, foco de inputs). |
 | `make_video.py` | Pipeline core. Por escena: **voz** (`generar_narracion()` → Piper por defecto / ElevenLabs); **clip mudo**: si hay foto del usuario → `generar_clip_kenburns()`; si no y `IMAGE_ENGINE=pollinations` → `generar_imagen_pollinations()` + Ken Burns; si `=fal` → `generar_clip()` (Vidu). Monta respetando "la voz manda" (`-t voz_dur` + `tpad`). Persistencia en `.trabajo_<output>/` con reanudación (voz, imagen IA `imgia_N.png`, clip y escena se reutilizan si son válidos). Outro opcional con logo. Subtítulos pequeños. `cargar_llaves()` ya NO aborta si faltan ElevenLabs/fal. |
 | `generar.py` | "Cerebro" Claude API. `cargar_llaves()` (solo exige Anthropic), `obtener_voces_elevenlabs()`, `pedir_guion_a_claude(..., aspect_ratio=)` (acepta formato, fuerza aspect_ratio en el config), `proponer_ideas()`, `generar_script_para_idea()`, `calcular_costo()`, `calcular_costo_mixto()`, catálogo `PIPER_VOCES` + `FORMATOS`. `validar_guion()` omite el voice_id de ElevenLabs cuando se usa Piper. |
 | `clientes.py` | Persistencia por cliente (keywords, ideas, scripts). Sin cambios recientes. |
@@ -115,6 +118,7 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 - **Biblioteca de videos**: lista los .mp4 con preview y descarga.
 - **"La voz manda"**: `voz_dur` define la duración de cada escena (`-t voz_dur` + `tpad`).
 - **Persistencia y reanudación**: `.trabajo_<slug>/` guarda `voz_N.mp3`, `imgia_N.png`, `clip_N.mp4`, `escena_N.mp4`. Si algo falla, lo bueno se conserva y se reintenta solo lo que falta. (Útil con Pollinations: la imagen IA se reutiliza y no se vuelve a pedir.)
+- **Identidad visual PyS** (solo apariencia): tema oscuro con resplandores turquesa/fucsia, glassmorphism, tipografía Optima/Inter, botones píldora, marca + hero con íconos de video/marketing. Responsive. Verificado con capturas reales (escritorio y móvil). El único componente que Streamlit no recolorea por CSS (toggle/slider) se resolvió con `primaryColor` en `.streamlit/config.toml`.
 
 ---
 
