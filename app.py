@@ -183,7 +183,8 @@ def _guardar_uploads(imgs, logo):
 #  EJECUCION DEL PIPELINE  (intacto - es el flujo de generacion de video)
 # ==============================================================================
 def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
-                         rutas_imgs=None, ruta_logo=None, con_subs=True):
+                         rutas_imgs=None, ruta_logo=None, con_subs=True,
+                         aspect_ratio="9:16"):
     log_box = st.empty()
     lines = []
 
@@ -213,6 +214,7 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
                 n_imagenes_usuario=n_imgs_efectivas,
                 imagen_paths=rutas_imgs[:n_imgs_efectivas] if n_imgs_efectivas else None,
                 logo_path=ruta_logo,
+                aspect_ratio=aspect_ratio,
             )
             guion.setdefault("config", {})["burn_subtitles"] = bool(con_subs)
             generar.validar_guion(guion, n_escenas, voces)
@@ -221,6 +223,7 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
             _append(f"  Motivo:      {guion.get('_voz_motivo','')}")
             _append(f"  Output:      {guion['config'].get('output_file')}")
             _append(f"  Escenas:     {len(guion['escenas'])}")
+            _append(f"  Formato:     {guion['config'].get('aspect_ratio', '9:16')}")
             _append(f"  Subtitulos: {'ON (estilo elegante)' if con_subs else 'OFF (video limpio)'}")
 
             status.update(label="3/4 · Generando voz + clips...")
@@ -300,7 +303,14 @@ def pagina_crear():
     )
     descripcion = st.session_state.get("desc_crear", "")
 
-    c1, c2, c3 = st.columns([1, 1.2, 2])
+    # Formato del video: etiqueta amigable -> aspect ratio que entiende el pipeline
+    FORMATOS_UI = {
+        "Vertical 9:16 (Reels / TikTok / Shorts)": "9:16",
+        "Horizontal 16:9 (YouTube)":               "16:9",
+        "Cuadrado 1:1 (feed)":                     "1:1",
+    }
+
+    c1, c2, c3, c4 = st.columns([1, 1.6, 1.1, 1.8])
     with c1:
         n_escenas = st.number_input(
             "Escenas",
@@ -310,14 +320,23 @@ def pagina_crear():
             help=f"Default: {generar.N_ESCENAS_DEFAULT} escenas (~{generar.N_ESCENAS_DEFAULT * generar.SEG_X_ESCENA}s)",
         )
     with c2:
+        formato_label = st.selectbox(
+            "Formato del video",
+            list(FORMATOS_UI.keys()),
+            index=0,  # vertical 9:16 por defecto
+            help="Vertical para Reels/TikTok/Shorts, horizontal para YouTube, "
+                 "cuadrado para feed. Aplica a todo: clips de IA, tus fotos y subtitulos.",
+        )
+        aspect_ratio = FORMATOS_UI[formato_label]
+    with c3:
         con_subs = st.toggle(
             "Con subtitulos",
             value=True,
             help="Subtitulos incrustados estilo Reels. Desactiva para video limpio.",
         )
-    with c3:
+    with c4:
         st.caption(
-            f"{n_escenas} escenas × {generar.SEG_X_ESCENA}s · Vidu Q3 Turbo 540p. "
+            f"{n_escenas} escenas × {generar.SEG_X_ESCENA}s · {formato_label.split(' (')[0]}. "
             f"Default: {generar.N_ESCENAS_DEFAULT} escenas (${generar.COSTO_DEFAULT:.2f}). "
             f"{'Con subs.' if con_subs else 'Sin subs.'}"
         )
@@ -405,7 +424,7 @@ def pagina_crear():
         _ejecutar_generacion(
             descripcion, n_escenas, anthro_key, eleven_key,
             rutas_imgs=rutas_imgs, ruta_logo=ruta_logo,
-            con_subs=con_subs,
+            con_subs=con_subs, aspect_ratio=aspect_ratio,
         )
 
 

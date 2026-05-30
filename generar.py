@@ -209,8 +209,17 @@ def _limpiar_fences(texto):
     return t
 
 
+# Formatos de video soportados: clave -> (frase para el prompt visual, etiqueta UI)
+FORMATOS = {
+    "9:16": "vertical 9:16",
+    "16:9": "horizontal 16:9",
+    "1:1":  "square 1:1",
+}
+
+
 def pedir_guion_a_claude(anthro_key, descripcion, n_escenas, voces,
-                          n_imagenes_usuario=0, imagen_paths=None, logo_path=None):
+                          n_imagenes_usuario=0, imagen_paths=None, logo_path=None,
+                          aspect_ratio="9:16"):
     from anthropic import Anthropic
     client = Anthropic(api_key=anthro_key)
 
@@ -233,10 +242,18 @@ def pedir_guion_a_claude(anthro_key, descripcion, n_escenas, voces,
     else:
         nota_imgs = "\n\nIMAGENES DEL USUARIO: 0 (todas las escenas son text-to-video)."
 
+    frase_aspect = FORMATOS.get(aspect_ratio, "vertical 9:16")
+    nota_aspect = (
+        f"\n\nFORMATO DEL VIDEO: {frase_aspect}. "
+        f"Termina CADA prompt visual con '{frase_aspect}' (en vez de cualquier otro aspect ratio) "
+        f"y encuadra las escenas para ese formato."
+    )
+
     user_msg = (
         f"DESCRIPCION DEL USUARIO:\n{descripcion.strip()}\n\n"
         f"NUMERO DE ESCENAS: {n_escenas}"
-        f"{nota_imgs}\n\n"
+        f"{nota_imgs}"
+        f"{nota_aspect}\n\n"
         "Genera el JSON ahora. Solo el JSON, nada mas."
     )
 
@@ -255,6 +272,10 @@ def pedir_guion_a_claude(anthro_key, descripcion, n_escenas, voces,
         guion = json.loads(texto)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Claude no devolvio JSON valido: {e}\n--- RAW ---\n{texto[:800]}")
+
+    # Forzar el formato elegido de forma determinista (no dependemos de que
+    # Claude lo ponga bien). Lo lee make_video.py para t2v, Ken Burns y outro.
+    guion.setdefault("config", {})["aspect_ratio"] = aspect_ratio
 
     # Adjuntar referencias locales a archivos del usuario (Claude no las inventa)
     if imagen_paths:
