@@ -111,13 +111,13 @@ CONFIG = {
     "voice_similarity":  0.75,
     "voice_style":       0.0,
 
-    # --- Subtitulos (estilo Reels/TikTok elegante) ---
+    # --- Subtitulos (estilo Reels/TikTok elegante, pequenos y discretos) ---
     "burn_subtitles":   True,
     "sub_fontname":     "Arial",
-    "sub_fontsize":     10,
-    "sub_bold":         1,
-    "sub_outline":      1.4,    # grosor del borde negro (sutil pero legible)
-    "sub_margin_v":     60,     # margen comodo desde el borde inferior
+    "sub_fontsize":     7,      # mas pequeno: no tapa el centro del video
+    "sub_bold":         1,      # negrita: legible aun siendo pequeno
+    "sub_outline":      1.0,    # borde negro mas fino, acorde al texto pequeno
+    "sub_margin_v":     45,     # mas cerca del borde inferior (tercio bajo)
     "sub_margin_h":     40,     # margen lateral (fuerza wrap antes del borde)
     "sub_max_chars":    44,     # corte por linea para garantizar maximo 2 lineas
 
