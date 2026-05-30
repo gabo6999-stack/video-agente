@@ -4,7 +4,7 @@ Documento de continuidad. **Lee este archivo entero antes de tocar nada.**
 Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un chat nuevo de Claude web.
 
 - Última actualización: 2026-05-30
-- Último commit en `main`: **`b661328`** (`estilo: nueva interfaz con identidad de marca PyS (temática video/marketing), responsive`)
+- Último commit en `main`: **`3d57d5d`** (`feat(voz): Kokoro como motor de voz por defecto (gratis, español latino, más natural)`)
 - URL pública activa: **https://videoagenterafa.up.railway.app**
 - Repo: **https://github.com/gabo6999-stack/video-agente** (privado, rama `main`)
 
@@ -14,7 +14,7 @@ Sirve para retomar el proyecto desde una sesión nueva de Claude Code o desde un
 
 - **Qué es la app**: generador automático de videos cortos (Reels/TikTok/Shorts/YouTube) que orquesta Claude (guion e ideas) + voz + imágenes + FFmpeg (animación, montaje y subtítulos). Frontend Streamlit con persistencia multi-cliente.
 - **GRAN CAMBIO (2026-05-30): el sistema pasó a GRATIS por defecto.** Antes dependía de 3 APIs de pago (ElevenLabs voz + fal.ai Vidu video + Anthropic). Ahora:
-  - **Voz** → **Piper** (TTS local, gratis). ElevenLabs queda como respaldo detrás de un interruptor.
+  - **Voz** → **Kokoro** (TTS local, gratis, **español latino**, más natural — POR DEFECTO). Piper (español de España) y ElevenLabs (de pago) quedan como respaldo detrás del interruptor `TTS_ENGINE`.
   - **Imágenes** (escenas sin foto del usuario) → **Pollinations.ai** (gratis, sin llave) + animación Ken Burns. fal.ai Vidu queda como respaldo detrás de un interruptor.
   - **Animación de imágenes propias** → **FFmpeg Ken Burns** (local, gratis, ya estaba).
   - **Único costo que queda**: la **API de Claude (Anthropic)**, que escribe los guiones (unos centavos por video).
@@ -29,7 +29,7 @@ Todo el código de ElevenLabs y fal sigue intacto. Para reactivarlos, el equipo 
 
 | Variable de entorno | Valores | Por defecto | Efecto |
 |---|---|---|---|
-| `TTS_ENGINE` | `piper` / `elevenlabs` | `piper` | Motor de voz. `elevenlabs` requiere `ELEVENLABS_API_KEY`. |
+| `TTS_ENGINE` | `kokoro` / `piper` / `elevenlabs` | `kokoro` | Motor de voz. `kokoro`=gratis español latino (default); `piper`=gratis español de España; `elevenlabs`=de pago (requiere `ELEVENLABS_API_KEY`). |
 | `IMAGE_ENGINE` | `pollinations` / `fal` | `pollinations` | Imágenes de escenas sin foto. `fal` (video real Vidu) requiere `FAL_KEY`. |
 
 También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`, `image_engine`), pero la variable de entorno **tiene prioridad**.
@@ -44,13 +44,12 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
   - ⚙️ **SISTEMA** (fucsia `#F7007A`) — Biblioteca de videos, Configuración (llaves)
   - Cabecera del sidebar: si la voz es Piper (default) muestra "Voz e imágenes: gratis ✓"; solo muestra saldo de ElevenLabs si `TTS_ENGINE=elevenlabs`.
   - **Estilo aplicado vía CSS inyectado** (`st.markdown(unsafe_allow_html=True)`) + tema nativo en `.streamlit/config.toml`. Responsive (móvil/escritorio). Componente que Streamlit no recolorea bien por CSS: el toggle/slider — resuelto con `primaryColor` en el config.toml.
-- **Backend**: Python 3.13. SDKs: `anthropic`, `fal-client` (solo si se reactiva fal). ElevenLabs y Pollinations vía REST (`requests`). FFmpeg + ffprobe vía subprocess. **Piper** vía subprocess (binario en `/opt/piper`).
+- **Backend**: Python 3.13. SDKs: `anthropic`, `fal-client` (solo si se reactiva fal), `kokoro-onnx`+`soundfile`+`misaki-fork[en]` (voz Kokoro, sin PyTorch). ElevenLabs y Pollinations vía REST (`requests`). FFmpeg + ffprobe vía subprocess. **Kokoro** (modelo ONNX en `/opt/kokoro`) y **Piper** (binario en `/opt/piper`).
 - **Motores por defecto**:
   - **Claude**: `claude-sonnet-4-6` para guiones e ideas. Caching ephemeral sobre el system prompt. **(de pago, único costo)**
-  - **Voz — Piper** (gratis, local, CPU): catálogo curado de 4 voces neutras en español (ver `generar.PIPER_VOCES`):
-    - Femeninas: `es_ES-sharvard-medium` (Sara·España, speaker 1), `es_MX-claude-high` (Carla·México)
-    - Masculinas: `es_ES-davefx-medium` (David·España, **default**), `es_MX-ald-medium` (Alberto·México)
-    - El usuario solo ESCOGE la voz en "Crear video" (separadas femeninas/masculinas). No se "educa" por texto.
+  - **Voz — Kokoro** (gratis, local, CPU, **POR DEFECTO**): TTS neuronal Apache-2.0 vía ONNX (**sin PyTorch**). Español **latino**, más natural que Piper. Catálogo español de Kokoro es chico (ver `generar.KOKORO_VOCES`): **Femenina `ef_dora`** (Dora·Latina), **Masculina `em_alex`** (Alex·Latino, **default**). Se omite `em_santa` (voz temática). Modelo int8 (~88 MB) + voces (~27 MB) en `KOKORO_DIR` (`/opt/kokoro` deploy, `./kokoro` local). La fonética (espeak-ng) viene en el paquete `espeakng-loader`. Se carga una sola vez por corrida. Llamada: `Kokoro(...).create(texto, voice, lang="es")`, salida 24 kHz → MP3.
+  - **Voz — Piper** (gratis, local, respaldo `TTS_ENGINE=piper`): español de **España**. Catálogo `generar.PIPER_VOCES`: Femeninas `es_ES-sharvard-medium` (Sara, speaker 1), `es_MX-claude-high` (Carla·México); Masculinas `es_ES-davefx-medium` (David, default), `es_MX-ald-medium` (Alberto·México). ⚠️ **FIX espeak (commit `09cacbf`)**: se pasa `--espeak_data <PIPER_DIR>/espeak-ng-data` EXPLÍCITO; sin esto, en Linux Piper no hallaba la fonética y la voz sonaba "en otro idioma". Speaker multi-voz: sharvard M=0, F=1 (verificado).
+  - El usuario solo ESCOGE la voz en "Crear video" (separadas femeninas/masculinas), según el motor activo. No se "educa" por texto.
   - **Imágenes — Pollinations.ai** (gratis, sin llave): `https://image.pollinations.ai/prompt/{prompt}?width=&height=&model=flux&nologo=true&seed=`. Se pide al doble del tamaño de salida para que el Ken Burns tenga resolución. Reintentos con espera (límite ~1 img/15s).
   - **fal.ai Vidu Q3 Turbo** (respaldo de pago): `fal-ai/vidu/q3/text-to-video/turbo` ($0.035/s). Solo si `IMAGE_ENGINE=fal`.
 - **Deploy**: Railway con **Dockerfile** propio. Puerto fijo **8080**, sin password.
@@ -65,13 +64,13 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 |---|---|
 | `app.py` | Frontend Streamlit. "Crear video" tiene: nº escenas, **selector de formato** (9:16 / 16:9 / 1:1), toggle subtítulos, **selector de voz Piper** (femeninas/masculinas), expander para subir imágenes propias + logo. Cálculo de costo que muestra **"gratis"** por defecto. Orquesta `generar.py` y `make_video.py`. Página Configuración solo muestra la llave de Claude. **Estilo PyS**: constantes `_PYS_CSS` (CSS de marca), `_PYS_LOGO_SVG`/`_PYS_HERO_SVG` (íconos video), `_inyectar_estilos_pys()`, `_hero_pys()`, `_pill()` (chips de sección). **Toda la lógica/flujo intactos; solo apariencia.** |
 | `.streamlit/config.toml` | Tema nativo de Streamlit con la marca PyS: `base="dark"`, `primaryColor="#00E5C4"` (turquesa), fondos oscuros. Recolorea los componentes que el CSS no alcanza (toggle, slider, foco de inputs). |
-| `make_video.py` | Pipeline core. Por escena: **voz** (`generar_narracion()` → Piper por defecto / ElevenLabs); **clip mudo**: si hay foto del usuario → `generar_clip_kenburns()`; si no y `IMAGE_ENGINE=pollinations` → `generar_imagen_pollinations()` + Ken Burns; si `=fal` → `generar_clip()` (Vidu). Monta respetando "la voz manda" (`-t voz_dur` + `tpad`). Persistencia en `.trabajo_<output>/` con reanudación (voz, imagen IA `imgia_N.png`, clip y escena se reutilizan si son válidos). Outro opcional con logo. Subtítulos pequeños. `cargar_llaves()` ya NO aborta si faltan ElevenLabs/fal. |
-| `generar.py` | "Cerebro" Claude API. `cargar_llaves()` (solo exige Anthropic), `obtener_voces_elevenlabs()`, `pedir_guion_a_claude(..., aspect_ratio=)` (acepta formato, fuerza aspect_ratio en el config), `proponer_ideas()`, `generar_script_para_idea()`, `calcular_costo()`, `calcular_costo_mixto()`, catálogo `PIPER_VOCES` + `FORMATOS`. `validar_guion()` omite el voice_id de ElevenLabs cuando se usa Piper. |
+| `make_video.py` | Pipeline core. Por escena: **voz** (`generar_narracion()` → **Kokoro por defecto** / Piper / ElevenLabs); **clip mudo**: si hay foto del usuario → `generar_clip_kenburns()`; si no y `IMAGE_ENGINE=pollinations` → `generar_imagen_pollinations()` + Ken Burns; si `=fal` → `generar_clip()` (Vidu). Funciones de voz: `generar_voz_kokoro()` (ONNX, singleton `_KOKORO`), `generar_voz_piper()` (con `--espeak_data` explícito), `generar_voz()` (ElevenLabs). Monta respetando "la voz manda" (`-t voz_dur` + `tpad`). Persistencia en `.trabajo_<output>/` con reanudación. Diagnóstico de arranque imprime ffmpeg/ffprobe/piper/espeak/kokoro. `cargar_llaves()` ya NO aborta si faltan ElevenLabs/fal. |
+| `generar.py` | "Cerebro" Claude API. `cargar_llaves()` (solo exige Anthropic), `obtener_voces_elevenlabs()`, `pedir_guion_a_claude(..., aspect_ratio=)`, `proponer_ideas()`, `generar_script_para_idea()`, `calcular_costo()`, `calcular_costo_mixto()`, catálogos `KOKORO_VOCES` + `PIPER_VOCES` + `FORMATOS`. `validar_guion()` omite el voice_id de ElevenLabs cuando la voz es gratis (Kokoro/Piper). |
 | `clientes.py` | Persistencia por cliente (keywords, ideas, scripts). Sin cambios recientes. |
-| `Dockerfile` | `FROM python:3.13-slim`, instala `ffmpeg curl ca-certificates libstdc++6 libgomp1`, **descarga el binario Piper + 4 voces es a `/opt/piper`** (env `PIPER_DIR=/opt/piper`, `LD_LIBRARY_PATH=/opt/piper`), pip install, `COPY . .`, `CMD` con `unset STREAMLIT_*` + streamlit en puerto 8080. |
+| `Dockerfile` | `FROM python:3.13-slim`, instala `ffmpeg curl ca-certificates libstdc++6 libgomp1 libsndfile1`, **descarga Piper + 4 voces a `/opt/piper`** y el **modelo Kokoro int8 + voces a `/opt/kokoro`** (`KOKORO_DIR=/opt/kokoro`), pip install (incluye `kokoro-onnx`, sin PyTorch), `COPY . .`, `CMD` con `unset STREAMLIT_*` + streamlit en puerto 8080. |
 | `railway.json` | Forza `builder: "DOCKERFILE"`. |
-| `.dockerignore` / `.gitignore` | Excluyen `claves.txt`, `clientes/`, `.uploads/`, `.trabajo_*/`, `*.mp4`, y **`piper/`** (binario+voces locales ~90 MB; en el deploy se bajan al build). |
-| `requirements.txt` | `streamlit==1.57.0`, `anthropic==0.104.1`, `requests==2.34.2`, `pandas==2.2.3`, `openpyxl==3.1.5`, `fal-client==1.0.0`. |
+| `.dockerignore` / `.gitignore` | Excluyen `claves.txt`, `clientes/`, `.uploads/`, `.trabajo_*/`, `*.mp4`, **`piper/`** y **`kokoro/`** (binarios+modelos locales; en el deploy se bajan al build). |
+| `requirements.txt` | `streamlit==1.57.0`, `anthropic==0.104.1`, `requests==2.34.2`, `pandas==2.2.3`, `openpyxl==3.1.5`, `fal-client==1.0.0`, **`kokoro-onnx==0.5.0`, `soundfile==0.13.1`, `misaki-fork[en]`** (voz Kokoro; traen onnxruntime/espeakng-loader, NO PyTorch). |
 | `CLAUDE.md` | Instrucciones del flujo CLI viejo. **Parcialmente desactualizado** (el flujo real es Streamlit). |
 
 ### Secundarios
@@ -79,6 +78,7 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 |---|---|
 | `prueba_fal.py` | Prueba standalone de fal (solo útil si se reactiva el modo de pago). |
 | `piper/` (local, gitignored) | Binario Piper Windows + voces para pruebas locales. NO va al repo. |
+| `kokoro/` (local, gitignored) | Modelo Kokoro int8 + voces para pruebas locales. NO va al repo. |
 | `nixpacks.toml.bak`, `Procfile.bak` | Configs muertas. No se usan. |
 
 ---
@@ -111,7 +111,7 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 - **Crear video** (texto): describes el tema, Claude redacta guion y prompts visuales; las escenas se generan con imágenes gratis (Pollinations) animadas con Ken Burns; voz Piper.
 - **Usar mis imágenes**: subes 1 imagen por escena; se animan GRATIS con Ken Burns (zoom/paneo variado por escena). Las escenas sin foto se completan con imágenes IA gratis.
 - **Selector de formato**: Vertical 9:16 (default), Horizontal 16:9 (YouTube), Cuadrado 1:1. Se respeta en clips, Ken Burns y subtítulos.
-- **Selector de voz** (Piper): femeninas / masculinas, neutras. El usuario elige.
+- **Selector de voz**: por defecto voces **Kokoro** (español latino: Dora femenina / Alex masculino). Si `TTS_ENGINE=piper`, muestra voces Piper (España). El usuario elige; separadas femeninas/masculinas.
 - **Subtítulos** estilo Reels, **pequeños** (FontSize 7, outline 1.0, MarginV 45) — no tapan el centro. Toggle ON por defecto.
 - **Logo outro opcional**: PNG como cierre de 2.5s sobre negro.
 - **"Ideas desde keywords"** y **Repositorio / calendario**: por cliente, igual que antes.
@@ -126,23 +126,22 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 
 | Cosa | Estado |
 |---|---|
-| App arranca/renderiza (probado con `streamlit.testing` AppTest) | ✅ local |
-| Voz Piper genera MP3, "la voz manda" | ✅ local |
-| Imágenes Pollinations en vivo + Ken Burns | ✅ local |
-| Los 3 formatos (9:16/16:9/1:1) con subtítulos | ✅ local |
-| **Corrida completa 2 escenas (Piper+Pollinations+KenBurns+subs+montaje)** | ✅ local → MP4 540×960, 7.6s |
+| App arranca/renderiza (AppTest); selector muestra voces Kokoro | ✅ local |
+| **Voz Kokoro** genera MP3 español latino + corrida completa 2 escenas → MP4 540×960 | ✅ local |
+| Voz Piper con fix de espeak (fonemas español correctos) | ✅ local |
+| Imágenes Pollinations en vivo + Ken Burns; 3 formatos con subtítulos | ✅ local |
 | Config oculta ElevenLabs/fal, solo muestra Claude | ✅ local |
-| **Dockerfile baja Piper+voces en Railway** | ⚠️ **PENDIENTE validar en el deploy** |
-| **Calidad real de voz Piper y de imágenes Pollinations** | ⚠️ **PENDIENTE oír/ver en producción** |
+| **Dockerfile baja Kokoro + Piper en Railway** | ⚠️ **PENDIENTE validar en el deploy** |
+| **Calidad real de la voz Kokoro en producción** | ⚠️ **PENDIENTE oír en el deploy** |
 
 ---
 
 ## 9. Siguiente paso inmediato
 
-1. Hacer **redeploy en Railway** (el push ya está en `main`). Vigilar en **Deploy Logs** que el build descargue Piper + las 4 voces sin error (líneas de `curl` a github/huggingface) y que aparezcan los `[startup] ffmpeg/ffprobe`.
-2. Abrir la app → **Crear video** → tema corto, 3 escenas → el botón debe decir **"gratis"** → Generar.
-3. Validar: que la **voz Piper** suene bien, que las **imágenes Pollinations** sean aceptables, que el formato/subtítulos estén ok. **Descargar el MP4 antes de cerrar** (disco efímero).
-4. Si la voz/imagen no convencen: se puede cambiar la voz Piper por defecto, o reactivar el modo de pago con `TTS_ENGINE`/`IMAGE_ENGINE`.
+1. Hacer **redeploy en Railway** (el push ya está en `main`). Vigilar en **Deploy Logs** que el build descargue **Kokoro** (modelo+voces) y Piper sin error, y que aparezcan los `[startup] kokoro modelo/voces` y `ffmpeg/ffprobe`.
+2. Abrir la app → **Crear video** → tema corto, 3 escenas → elegir voz (Dora/Alex) → el botón debe decir **"gratis"** → Generar.
+3. Validar sobre todo que la **voz Kokoro suene natural en español latino**; que imágenes/formato/subtítulos estén ok. **Descargar el MP4 antes de cerrar** (disco efímero).
+4. Si la voz Kokoro no convence: probar la otra voz, o cambiar de motor con `TTS_ENGINE` (`piper`=España gratis, `elevenlabs`=de pago).
 
 ---
 
@@ -161,7 +160,9 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 ## 11. Advertencias para el futuro
 
 - ⚠️ **NUNCA llenar el *Custom Start Command*** en Railway (debe estar VACÍO).
-- ⚠️ **El build descarga Piper desde GitHub releases y las voces desde Hugging Face.** Si esas URLs cambian o caen, el build falla. URLs en el `Dockerfile`. (Verificadas vigentes el 2026-05-30.)
+- ⚠️ **El build descarga Kokoro (GitHub `thewh1teagle/kokoro-onnx` release model-files-v1.0), Piper (GitHub releases) y las voces Piper (Hugging Face).** Si esas URLs cambian o caen, el build falla. URLs en el `Dockerfile`. (Verificadas vigentes el 2026-05-30.)
+- ⚠️ **Voz Kokoro**: español **latino** (no de España) y catálogo chico (1 fem + 1 masc neutras). Más natural que Piper pero las voces españolas de Kokoro son "sin grado de calidad" oficial. Si no convence, `TTS_ENGINE=piper` (España) o `elevenlabs` (de pago). Necesita `libsndfile1` (apt) para `soundfile`.
+- ⚠️ **FIX Piper espeak (commit `09cacbf`)**: si Piper vuelve a sonar "en otro idioma", revisar que se pase `--espeak_data` y que exista `<PIPER_DIR>/espeak-ng-data`.
 - ⚠️ **Pollinations es un servicio externo gratis best-effort**: puede ir lento o devolver 429/5xx. Hay reintentos con espera (~16s). Si falla mucho, reactivar fal (`IMAGE_ENGINE=fal`) o cambiar de proveedor.
 - ⚠️ **Calidad**: Piper es bueno pero un escalón debajo de ElevenLabs; las imágenes Pollinations son menores que el video real de Vidu (son imagen fija animada). Es el trade-off por ser gratis (decisión del equipo).
 - ⚠️ **NO borrar el código de ElevenLabs ni de fal** ni las funciones `generar_voz()`, `generar_clip()`, etc. Son el respaldo de pago detrás de los interruptores.
@@ -177,7 +178,7 @@ También se pueden fijar por video en el `config` del `guion.json` (`tts_engine`
 1. Lee este archivo entero.
 2. `git log --oneline -10` (deberías ver `d117541` o más nuevo).
 3. Archivos clave: `app.py`, `make_video.py`, `generar.py`, `clientes.py`, `Dockerfile`.
-4. Probar local: `streamlit run app.py` (necesita `claves.txt` con `ANTHROPIC_API_KEY` y `ffmpeg` en PATH; para voz Piper en local, descargar el binario Windows + una voz en `./piper/`).
+4. Probar local: `streamlit run app.py` (necesita `claves.txt` con `ANTHROPIC_API_KEY` y `ffmpeg` en PATH). Para la voz **Kokoro** en local: `pip install kokoro-onnx soundfile "misaki-fork[en]"` y descargar `kokoro-v1.0.int8.onnx` + `voices-v1.0.bin` en `./kokoro/`. Para **Piper** en local: binario Windows + una voz en `./piper/`.
 
 ### Llaves necesarias
 - **Anthropic** (`sk-ant-api03-...`) — **obligatoria** (Claude).
