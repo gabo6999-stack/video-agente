@@ -81,6 +81,17 @@ for _name in ("ffmpeg", "ffprobe"):
     _p = shutil.which(_name)
     print(f"[make_video startup] {_name}: {_p or '(NO ENCONTRADO)'}", flush=True)
 
+# Diagnostico de Piper: confirma binario y, sobre todo, espeak-ng-data (la
+# fonetica del espanol). Si esta carpeta falta, la voz suena "en otro idioma".
+_piper_root = os.environ.get("PIPER_DIR") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "piper")
+_piper_exe = next((os.path.join(_piper_root, n) for n in ("piper", "piper.exe")
+                   if os.path.exists(os.path.join(_piper_root, n))), None)
+_espeak_dir = os.path.join(_piper_root, "espeak-ng-data")
+print(f"[make_video startup] piper bin: {_piper_exe or '(NO ENCONTRADO)'}", flush=True)
+print(f"[make_video startup] espeak-ng-data: "
+      f"{_espeak_dir if os.path.isdir(_espeak_dir) else '(NO ENCONTRADO)'}", flush=True)
+
 
 def _bin(name):
     """Resuelve el path absoluto de un binario externo (ffmpeg/ffprobe) usando
@@ -293,6 +304,23 @@ def _piper_bin():
     return shutil.which("piper")  # fallback: piper en PATH
 
 
+def _piper_espeak_data():
+    """Ruta a espeak-ng-data (fonetica del espanol). El tarball de Piper la trae
+    junto al binario. La devolvemos para pasarsela EXPLICITAMENTE a piper y que
+    NUNCA dependa de adivinar la ruta segun el directorio de trabajo: si Piper no
+    encuentra estos datos, fonetiza en ingles y la voz suena 'en otro idioma'."""
+    cand = os.path.join(_piper_dir(), "espeak-ng-data")
+    if os.path.isdir(cand):
+        return cand
+    # Por si el binario viene de PATH: buscar junto al ejecutable real
+    binp = _piper_bin()
+    if binp:
+        alt = os.path.join(os.path.dirname(os.path.abspath(binp)), "espeak-ng-data")
+        if os.path.isdir(alt):
+            return alt
+    return None
+
+
 def generar_voz_piper(texto, salida_mp3, voice=None, speaker=None):
     """Genera la narracion con Piper (local, gratis) y la deja en MP3 (mismo
     formato que ElevenLabs para no tocar persistencia ni montaje)."""
@@ -309,6 +337,14 @@ def generar_voz_piper(texto, salida_mp3, voice=None, speaker=None):
     log(f"Piper (gratis): generando voz ({len(texto)} caracteres, voz={voice})...")
     wav = os.path.splitext(salida_mp3)[0] + ".wav"
     cmd = [binp, "--model", modelo, "--output_file", wav]
+    # CRITICO: pasar la ruta de espeak-ng-data de forma explicita. Sin esto, en
+    # Linux/Railway Piper puede no hallarla (cwd != carpeta del binario) y caer a
+    # fonetica inglesa -> la voz suena "en otro idioma".
+    espeak_data = _piper_espeak_data()
+    if espeak_data:
+        cmd += ["--espeak_data", espeak_data]
+    else:
+        log("AVISO Piper: no encontre espeak-ng-data; la pronunciacion podria fallar.")
     if speaker is not None:
         cmd += ["--speaker", str(speaker)]
     r = subprocess.run(cmd, input=texto, capture_output=True, text=True)
