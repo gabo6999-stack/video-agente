@@ -60,6 +60,24 @@ URL_BILLING = {
 st.set_page_config(page_title="Video Auto", page_icon="🎬", layout="wide")
 
 
+def notify_nexus(action, detail=None, url=None):
+    """Reporta una actividad a NEXUS (Centro de Comando). Solo corre si hay NEXUS_URL y NEXUS_KEY."""
+    import os as _os, requests as _requests
+    nexus_url = _os.environ.get("NEXUS_URL")
+    nexus_key = _os.environ.get("NEXUS_KEY")
+    if not nexus_url or not nexus_key:
+        return
+    try:
+        _requests.post(
+            f"{nexus_url}/api/ingest",
+            json={"agent": "RAFA VideoAgente", "action": action, "detail": detail, "url": url},
+            headers={"x-nexus-key": nexus_key},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
 # ==============================================================================
 #  IDENTIDAD VISUAL "PyS" (Pyptidos y Suplementos)  -  SOLO ESTILO, sin logica
 # ==============================================================================
@@ -519,6 +537,7 @@ def _ejecutar_generacion(descripcion, n_escenas, anthro_key, eleven_key,
             if proc.returncode == 0 and output_path.exists():
                 status.update(label="4/4 · Video listo!", state="complete", expanded=False)
                 st.success(f"Video listo en: `{output_path}`")
+                notify_nexus(action="Generó un video", detail=output_file)
                 with open(output_path, "rb") as f:
                     video_bytes = f.read()
                 st.video(video_bytes)
